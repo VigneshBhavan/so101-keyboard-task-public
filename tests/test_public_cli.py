@@ -15,6 +15,14 @@ loader.exec_module(cli)
 
 
 class PublicCliTests(unittest.TestCase):
+    def test_download_archive_requires_explicit_option(self):
+        for extra in ([], ['--all']):
+            with patch.object(sys, 'argv', ['so101', 'download', *extra]), \
+                 patch.object(cli.subprocess, 'call', return_value=0) as execute:
+                self.assertEqual(cli.main(), 0)
+                self.assertEqual(execute.call_args.args[0],
+                                 [str(ROOT / 'scripts/download_benchmark_artifacts.sh'), *extra])
+
     def plan(self, *args):
         with patch.object(sys, 'argv', ['so101', *args]), patch('builtins.print') as out, patch.object(cli.subprocess, 'call') as execute:
             self.assertEqual(cli.main(), 0)

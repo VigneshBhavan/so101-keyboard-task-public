@@ -17,31 +17,15 @@ pass, as does a short P1A-to-Transit15 resume. These runs test the pipeline, not
 policy performance. First startup
 compiles Warp kernels; the named Docker cache volume reuses them on later runs.
 
-## Measured short learning recipe
+## Train for your configured keyboard pose
 
-The new public pipeline reached 100% over 2048 two-letter episodes, then 98.97%
-over 2048 six-letter episodes after 50 further updates. Reproduce that budget with:
-
-```bash
-./so101 train --actuator anchorbench --stage p1a \
-  --num-envs 4096 --iterations 501 --seed 1307
-./so101 train --actuator anchorbench --stage transit15 \
-  --checkpoint /absolute/path/to/P1A/model_500.pt \
-  --num-envs 4096 --iterations 50 --seed 1307
-```
-
-The measured training-loop time was 29 min 17 s plus 2 min 57 s on an RTX 5090.
-The resumed file is `model_549.pt`; it contains 551 cumulative update iterations
-because resume inherits the prior index. A new run still needs evaluation and
-rollout review. [RESULTS.md](RESULTS.md) records failures, timing provenance and
-placement tolerance. A 20,000-update run is not required to demonstrate this pipeline.
-
-## Optional larger budget
-
-A local two-stage recipe with a 20,000-update budget is:
+After creating your task JSON as shown in the README, an example two-stage
+budget is 4,000 P1A updates followed by 16,000 six-letter updates. Evaluate early
+and choose the continuation budget from your results:
 
 ```bash
 ./so101 train --actuator anchorbench --stage p1a \
+  --task-config configs/tasks/my-keyboard.json \
   --num-envs 4096 --iterations 4000 --seed 1307
 
 # Select the final model from that run, and use the same profile/configuration.
@@ -90,7 +74,7 @@ folder with each policy for replay and deployment export.
 
 ## Supervise the staged run
 
-The host-side supervisor runs the same public commands sequentially and saves
+For the default reference geometry, the host-side supervisor runs the same public commands sequentially and saves
 stage status, console logs, evaluation reports, videos and GPU samples. Run it
 inside a persistent terminal such as tmux for a long experiment:
 
@@ -98,8 +82,7 @@ inside a persistent terminal such as tmux for a long experiment:
 ./so101 build
 ./so101 setup-hardware
 python3 scripts/run_public_training_pipeline.py \
-  --out-dir output/short-training-seed1307 \
-  --p1a-iterations 501 --transit-iterations 50 --prepare-deployment
+  --out-dir output/reference-training-seed1307 --prepare-deployment
 ```
 
 Defaults are 4096 environments, 4000 P1A updates, then 16000 additional Transit15
@@ -119,3 +102,7 @@ status; `gpu.csv` records total GPU memory/use every 10 seconds, including deskt
 processes. Each stage has its own public CLI request and resolved training inputs.
 For individual commands, `./so101 ... --output-dir NEW_DIRECTORY` selects an explicit
 output directory instead of the default timestamped location.
+
+For custom task/physics JSONs, use the explicit train/resume commands above; the
+supervisor currently exposes the reference configuration only. Short-run results
+are retained in [development validation](RESULTS.md), not as recommended policies.

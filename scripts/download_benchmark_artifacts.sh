@@ -5,9 +5,11 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/download_benchmark_artifacts.sh [OUTPUT_DIR]
+  ./scripts/download_benchmark_artifacts.sh [--all] [OUTPUT_DIR]
 
-Downloads the immutable checkpoint/config/evaluation bundle from:
+Defaults to the optional AnchorBench 19k checkpoint, matched environment and
+evaluation report. --all includes the complete benchmark and development archive.
+Downloads immutable artifacts from:
   https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark
 
 If OUTPUT_DIR is omitted, files are placed under .artifacts/ in this checkout.
@@ -21,7 +23,12 @@ if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   exit 0
 fi
 
-[[ $# -le 1 ]] || { usage >&2; exit 2; }
+include_all=false
+if [[ "${1:-}" == "--all" ]]; then
+  include_all=true
+  shift
+fi
+[[ $# -le 1 && "${1:-}" != --* ]] || { usage >&2; exit 2; }
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-${SO101_ARTIFACT_DIR:-$repo_root/.artifacts/so101-keyboard-typing-benchmark}}"
@@ -132,9 +139,19 @@ artifacts=(
   'videos/public-transit15-NVIDIA.mp4|071e726316af4a2f61aad9c3b46679b8de018e87732354c09d3d4ecb5a51d63a'
 )
 
+selected_checksums="$(mktemp "$output_dir/.download-checksums.XXXXXX")"
+trap 'rm -f "$selected_checksums"' EXIT
 for specification in "${artifacts[@]}"; do
   IFS='|' read -r relative_path expected_sha256 <<< "$specification"
+  if [[ "$include_all" == false ]]; then
+    case "$relative_path" in
+      checkpoints/mjwarp-anchorbench-19k/model_19000.pt|configs/mjwarp-anchorbench-19k.env.yaml|evaluation/mjwarp-anchorbench-19k.corpus_100x6_seed1307.json) ;;
+      *) continue ;;
+    esac
+  fi
   download_and_verify "$relative_path" "$expected_sha256"
+  printf '%s  %s\n' "$expected_sha256" "$relative_path" >> "$selected_checksums"
 done
+mv "$selected_checksums" "$output_dir/DOWNLOAD_SHA256SUMS"
 
 printf '%s\n' "$output_dir"

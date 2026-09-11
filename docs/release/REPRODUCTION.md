@@ -7,10 +7,11 @@ the generated request, exit, evaluation and deployment logs with the result.
 ## Software acceptance
 
 1. Build with `./so101 build` using only public dependencies.
-2. Run `./so101 download`; every file must pass its pinned checksum.
-3. Run `./so101 probe` and the README's six-letter video command. Inspect the
+2. For the optional reference checkpoint, run `./so101 download`; every file must
+   pass its pinned checksum. Training from scratch does not require this download.
+3. Run `./so101 probe` with your task JSON, or the optional reference-policy video command. Inspect the
    recording and strict evaluation report, including failure reasons.
-4. Run the short staged recipe in [TRAINING.md](TRAINING.md), evaluate both seeds,
+4. For your own setup, run the staged recipe in [TRAINING.md](TRAINING.md), evaluate both seeds,
    and record initialization wall time separately from training-loop time.
 5. Install with `./so101 setup-hardware`, export the policy under your robot ID
    with `--encoder-convention lerobot`, then dry-run deployment without `--execute`.

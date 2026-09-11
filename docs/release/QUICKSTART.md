@@ -5,36 +5,27 @@ Python 3. Building uses the pinned NVIDIA Isaac Lab image and its applicable
 license terms. No private repository or cluster account is required. Simulation does
 not receive robot devices. See [STATUS.md](STATUS.md) for measured validation.
 
-## Build and try a released policy
+## Build
 
 ```bash
 ./so101 build
-./so101 download
-./so101 probe
-./so101 video --actuator anchorbench --stage transit15 \
-  --checkpoint .artifacts/so101-keyboard-typing-benchmark/checkpoints/mjwarp-anchorbench-19k/model_19000.pt \
-  --env-config .artifacts/so101-keyboard-typing-benchmark/configs/mjwarp-anchorbench-19k.env.yaml
 ```
 
-`video` records an MP4 and evaluation report. Replace it with `evaluate` for
-headless episodes, or `play` for the interactive Newton viewer. `play` requires an
-accessible X11 `DISPLAY` and, where needed, `XAUTHORITY`. Its interactive window
-has not yet been qualified; recorded playback has been tested.
+Choose workflow 1 below to train for your own layout. No artifact download is
+required. Workflow 2 is an optional existing policy for the reference fixture.
 
-The probe checks zero-action stability and bounded joint actions. It skips the
-historical one-letter logical/contact probes, which do not apply unchanged to the
-multi-letter task. It is not a contact or policy-quality test.
+First startup compiles Warp kernels; the launcher retains a named Docker cache.
+Runtime source changes require `./so101 build` again.
 
-First startup compiles Warp kernels. The launcher retains the cache in a named
-Docker volume and disables the optional Omniverse Hub cache with
-`OMNICLIENT_HUB_MODE=disabled`, as documented by the
-[Omniverse Client Library](https://docs.omniverse.nvidia.com/kit/docs/client_library/latest/index.html).
-The source fingerprint check requests a rebuild when runtime code changes.
+## Workflow 1: train with your chosen configuration
 
-## Train with a chosen configuration
+Copy `configs/tasks/keyboard-pose.json` to `configs/tasks/my-keyboard.json` and
+edit it for your intended physical layout. The first command below uses that
+nominal pose; the other commands illustrate alternative actuator/DR choices.
 
 ```bash
-./so101 train --actuator anchorbench --stage p1a --num-envs 64 --iterations 10
+./so101 train --actuator anchorbench --stage p1a \
+  --task-config configs/tasks/my-keyboard.json --num-envs 64 --iterations 10
 ./so101 train --actuator usd --stage p1a --num-envs 64 --iterations 10
 ./so101 train --actuator workshop --stage p1a --num-envs 64 --iterations 10
 
@@ -76,7 +67,25 @@ seed and input hashes; training saves the resolved environment and agent YAML.
 Each run also saves its console log and exit code. Compare policies with matched
 sample budgets, seeds, configurations and sequence banks.
 
-## Calibrate and deploy
+## Workflow 2: optional ~19k reference policy
+
+Read [the fixture requirements](../../FIXTURE_SETUP.md) before physical use.
+The pretrained policy assumes its trained keyboard transform and fixed jaw.
+Calibration does not compensate for a different keyboard placement.
+
+```bash
+./so101 download
+./so101 video --actuator anchorbench --stage transit15 \
+  --checkpoint .artifacts/so101-keyboard-typing-benchmark/checkpoints/mjwarp-anchorbench-19k/model_19000.pt \
+  --env-config .artifacts/so101-keyboard-typing-benchmark/configs/mjwarp-anchorbench-19k.env.yaml
+```
+
+Use `evaluate` for headless episodes or `play` for an interactive Newton viewer
+(X11 `DISPLAY`/`XAUTHORITY` required). The optional `--all` download includes the
+complete benchmark and development evidence. Verify downloaded files from the
+artifact directory with `sha256sum -c DOWNLOAD_SHA256SUMS`.
+
+## Both workflows: user calibration and deployment
 
 Follow [HARDWARE_PREPARATION.md](HARDWARE_PREPARATION.md): install the isolated CPU
 LeRobot environment, run the standard SO-101 follower calibration, export a

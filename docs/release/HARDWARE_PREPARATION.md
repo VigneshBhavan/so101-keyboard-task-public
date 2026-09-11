@@ -2,7 +2,9 @@
 
 Use the standard [LeRobot SO-101 follower calibration](https://huggingface.co/docs/lerobot/so101).
 The robot ID used for calibration must be the same ID used for deployment.
-A separate multi-pose calibration fit is not a mandatory setup step.
+Calibration is performed by the user on their own robot. It establishes encoder
+coordinates; it does not locate the keyboard. A separate multi-pose calibration
+fit is not a mandatory setup step.
 
 ## Install and calibrate
 

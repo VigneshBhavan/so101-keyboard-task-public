@@ -1,75 +1,95 @@
-# SO-101 keyboard typing: training and deployment
+# SO-101 keyboard typing: train and deploy
 
-Train an SO-101 typing policy in Newton, compare actuator/physics configurations,
-and export the trained policy for a LeRobot-calibrated follower. Released
-checkpoints and the published fixed-fixture benchmark are included as a starting
-point. Users can change the nominal keyboard pose, randomize placement during
-training, and deploy using the nominal geometry saved with their own policy.
+Train an SO-101 typing policy in Newton for your keyboard placement, evaluate it,
+and deploy using the geometry saved during training and your robot's LeRobot
+calibration. An established AnchorBench ~19k checkpoint is available as an
+**optional shortcut for the documented reference fixture**.
 
-The new six-letter policy passed 2,027/2,048 simulation episodes (98.97%) after
-32 min 14 s of training-loop time on an RTX 5090. Training, evaluation, placement
-tests and CPU deployment checks are measured; second-robot physical validation is pending.
-See [results and timing](docs/release/RESULTS.md).
-See [validation status](docs/release/STATUS.md) for evidence and limitations.
-
-## Try a released policy
+## Install
 
 Requirements: Linux x86-64, an NVIDIA GPU, Docker with NVIDIA Container Toolkit,
-and host Python 3. The pinned container supplies Isaac Lab, Newton and RSL-RL;
-no private checkout or cluster account is needed. Allow space for the Isaac Lab image
-and build layers. The verified workstation uses an RTX 5090 with 32 GB VRAM;
-minimum GPU/driver requirements and other GPU models remain to be qualified.
+and host Python 3. The pinned container supplies Isaac Lab, Newton and RSL-RL.
+The tested GPU is an RTX 5090 with 32 GB; other GPUs and minimum requirements
+remain to be qualified. No private checkout or cluster account is required.
 
 ```bash
 git clone https://github.com/VigneshBhavan/so101-keyboard-task-public.git
 cd so101-keyboard-task-public
 ./so101 build
-./so101 download
-./so101 probe
-
-./so101 video --actuator anchorbench \
-  --checkpoint .artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/model_549.pt \
-  --env-config .artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/params/env.yaml
 ```
 
-`video` writes an MP4 and evaluation report under `output/public/`. Use `play`
-instead for an interactive Newton viewer (X11 DISPLAY/XAUTHORITY required), or
-`evaluate` for headless seeded episodes. Supply `--num-envs` to set evaluation size.
+## Workflow 1: train for your setup
 
-## Train and choose physics
+Choose the nominal keyboard position/orientation relative to the robot in
+simulation. Your physical fixture must match that trained geometry at deployment.
+The task JSON supports nominal XYZ/yaw and optional XY/yaw placement randomization.
+See [task configuration](docs/release/TASK_CONFIGURATION.md) for coordinates and units.
 
 ```bash
-# Short startup training; increase iterations for a learned policy.
-./so101 train --actuator anchorbench --stage p1a --iterations 10
-./so101 train --actuator usd --stage p1a --iterations 10
-./so101 train --actuator workshop --stage p1a --iterations 10
+cp configs/tasks/keyboard-pose.json configs/tasks/my-keyboard.json
+# Edit my-keyboard.json for your intended physical layout before training.
+./so101 probe --task-config configs/tasks/my-keyboard.json
 
-# Custom solver settings / actuator parameters, and keyboard placement or DR.
-./so101 train --actuator usd --stage p1a \
-  --physics-config configs/physics/mjwarp-soft-drives.json \
-  --task-config configs/tasks/keyboard-domain-randomization.json --iterations 10
+# Startup check; this budget is not intended to produce a deployable policy.
+./so101 train --actuator anchorbench --stage p1a \
+  --task-config configs/tasks/my-keyboard.json --num-envs 64 --iterations 10
 ```
 
-Actuator choices are AnchorBench-fitted parameters, the loaded USD drives, and the
-Workshop baseline. Newton MJWarp is the supported solver in this interface; Sparse
-VBD is not yet qualified. JSON can vary solver substeps/iterations/tolerance and
-actuator stiffness, damping, armature, friction, and limits. Keyboard position,
-yaw, planar pose randomization and reset-joint noise have a separate task JSON.
+Continue with the [P1A-to-six-letter training recipe](docs/release/TRAINING.md).
+Choose `anchorbench`, `usd` or `workshop` actuators. Optional `--physics-config`
+JSON configures Newton MJWarp and actuator parameters. Sparse VBD is not exposed
+by this interface. No pretrained download is needed to train from scratch.
 
-Training writes checkpoints, resolved `params/env.yaml`, and the optional
-`public_physics.json` / `public_task.json` beside it. Evaluation and resume restore
-those JSONs automatically. Evaluation rejects configurations that differ from the
-saved environment contract.
-Every run records source/image identity, requested settings, inputs and console logs.
+Evaluate your selected checkpoint with its matching stage and configuration:
 
-Read [task configuration](docs/release/TASK_CONFIGURATION.md),
-[the detailed quickstart](docs/release/QUICKSTART.md), and
-[training stages and budgets](docs/release/TRAINING.md).
+```bash
+./so101 evaluate --actuator anchorbench --stage transit15 \
+  --checkpoint /absolute/path/to/model_N.pt \
+  --env-config /absolute/path/to/params/env.yaml --num-envs 1024
+./so101 video --actuator anchorbench --stage transit15 \
+  --checkpoint /absolute/path/to/model_N.pt \
+  --env-config /absolute/path/to/params/env.yaml --target NVIDIA
+```
 
-## Calibrate and deploy
+Keep the full `params/` folder. Resume and evaluation restore saved task/physics
+JSONs; export uses the trained nominal key map and joint reference. Use `p1a` and
+a two-letter target for P1A checkpoints. Runs and videos are saved under `output/`.
 
-Robot calibration uses the standard Hugging Face LeRobot SO-101 follower procedure.
-The deployment environment is CPU-only and separate from the simulator.
+## Workflow 2: optionally try the established ~19k checkpoint
+
+This AnchorBench checkpoint was trained for a specific keyboard pose and fixed
+jaw. Simulation playback needs no physical robot. **Physical use requires matching
+its trained fixture geometry**, not placing the keyboard wherever convenient.
+
+| Reference-fixture requirement | Trained value |
+| --- | --- |
+| Keyboard CAD origin relative to robot model base | `(262.565, 12.135, 1.781) mm` |
+| CAD roll, pitch, yaw | `(-5.000, 0.051, -88.606) degrees` |
+| Near case edge beyond robot-base housing | `125.28 mm` |
+| Keyboard and jaw | Reference Logitech MX geometry; fixed typing jaw, moving jaw closed |
+| Mat under keyboard | `4.44 mm` |
+
+CAD angles are not physical top-down yaw. Follow [FIXTURE_SETUP.md](FIXTURE_SETUP.md)
+for the authoritative quaternion, placement convention and manual alignment checks.
+The matching environment YAML is the checkpoint's source of truth. If your setup
+cannot match it, use workflow 1 to train for your intended placement.
+
+```bash
+./so101 download
+./so101 video --actuator anchorbench --stage transit15 \
+  --checkpoint .artifacts/so101-keyboard-typing-benchmark/checkpoints/mjwarp-anchorbench-19k/model_19000.pt \
+  --env-config .artifacts/so101-keyboard-typing-benchmark/configs/mjwarp-anchorbench-19k.env.yaml
+```
+
+The default download contains only these weights, their environment and evaluation
+report, verified against pinned hashes. `./so101 download --all` explicitly fetches
+the complete benchmark/development archive. Existing downloaded files are retained.
+
+## Both workflows: calibrate your robot and deploy
+
+**You perform standard LeRobot calibration on your own robot.** Calibration
+establishes encoder coordinates; it does not measure the keyboard pose. Do not
+copy another robot's calibration or assume its additional fitted offsets apply.
 
 ```bash
 ./so101 setup-hardware
@@ -78,35 +98,29 @@ lerobot-calibrate --robot.type=so101_follower \
   --robot.port=/dev/serial/by-id/YOUR_CONTROLLER --robot.id=my_typing_robot
 
 ./so101 prepare-deployment --checkpoint /absolute/path/to/model_N.pt \
-  --env-config /absolute/path/to/params/env.yaml --robot-id my_typing_robot \
+  --env-config /absolute/path/to/matching/env.yaml --robot-id my_typing_robot \
   --encoder-convention lerobot --out-dir output/my_typing_robot
-
-# No hardware connection: validate the exported inputs first.
 ./so101 deploy output/my_typing_robot NVIDIA
 ```
 
-Use `HE` for a two-letter P1A policy and six letters for Transit15. The bundle
-exports the trained nominal map, joint reference and normalization. `lerobot`
-uses calibrated degrees without the benchmark robot's additional fitted offsets;
-`benchmark` explicitly selects those historical corrections. Check physical/model
-alignment before enabling motion. The operator-run `--execute` command, device
-setup, and full calibration procedure are in [the hardware guide](docs/release/HARDWARE_PREPARATION.md).
+For workflow 2, supply the downloaded `model_19000.pt` and
+`configs/mjwarp-anchorbench-19k.env.yaml` paths above. For workflow 1, supply your
+own selected checkpoint and its `params/env.yaml`.
 
-## Reference setup and results
+The last command is a software dry run. Match the physical fixture to the saved
+simulation geometry and check model/encoder alignment before enabling motion.
+[The hardware guide](docs/release/HARDWARE_PREPARATION.md) provides the explicit
+operator-run execution command. `benchmark` encoder offsets are only for
+reproducing the historical robot's separately fitted convention.
 
-[FIXTURE_SETUP.md](FIXTURE_SETUP.md) describes the published Logitech MX keyboard,
-fixed typing jaw, closed moving jaw and 4.44 mm mat. It is a reference fixture for
-reproducing the released checkpoints, not a restriction on new training. Changed
-poses and DR require training/evaluation for the intended setup. The actor receives
-nominal targets and proprioception; it receives no camera input or hidden sampled
-keyboard pose. Hardware key-down/key-up events provide typing feedback.
+## Documentation and validation
 
-Matched checkpoints, configuration files, evaluation reports and checksums:
-[Hugging Face benchmark dataset](https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark).
-The historical source snapshot is `1b8cb7e8176021685325724b62c41b1fe394c25a`.
-[Runtime provenance](runtime/README.md) records the public base and required patch.
+- [Detailed quickstart](docs/release/QUICKSTART.md)
+- [Training](docs/release/TRAINING.md) and [task/physics configuration](docs/release/TASK_CONFIGURATION.md)
+- [Hardware preparation](docs/release/HARDWARE_PREPARATION.md) and [reference fixture](FIXTURE_SETUP.md)
+- [Software validation status](docs/release/STATUS.md) and [independent reproduction record](docs/release/REPRODUCTION.md)
+- [Benchmark artifacts](https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark) and [runtime provenance](runtime/README.md)
 
-The retained source is also usable as an overlay through
-`scripts/overlay_into_isaaclab.sh`; the supported fresh-user installation uses the
-pinned container. Training, evaluation, and hardware preparation use the public
-commands documented above.
+Software execution and deployment dry runs have been tested locally. Physical
+reproduction on another user's SO-101 remains unverified. Development-training
+measurements are retained separately in the validation archive.
