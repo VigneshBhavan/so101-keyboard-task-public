@@ -40,6 +40,41 @@ def fingerprint(data):
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def load_perturbation(path):
+    data = load_config(path)
+    if 'keyboard' in data or not data.get('domain_randomization'):
+        raise ValueError('perturbation requires domain_randomization only; nominal geometry must remain frozen')
+    return data
+
+
+def apply_perturbation(env_cfg, data):
+    """Apply an explicitly labelled fixed-policy reset experiment after contract validation."""
+    points = env_cfg.commands.typing.letter_xyz_b_m
+    contract = env_cfg.task_contract
+    reference = env_cfg.target_reference_sha256
+    apply_config(env_cfg, data)
+    env_cfg.commands.typing.letter_xyz_b_m = points
+    env_cfg.task_contract = contract
+    env_cfg.target_reference_sha256 = reference
+
+
+def evaluation_reset_metadata(env_cfg):
+    """Describe the resolved reset protocol, including nonzero fixed offsets."""
+    robot = env_cfg.events.reset_robot_rest.params
+    keyboard = env_cfg.events.reset_keyboard.params
+    pose = keyboard.get('pose_range', {})
+    bounds = [*pose.values(), *(keyboard.get(key, (0, 0))
+              for key in ('x_range_m', 'y_range_m', 'yaw_range_rad'))]
+    return {
+        'exact_model_rest': not any(robot.get('position_range', (0, 0))),
+        'zero_joint_velocity': not any(robot.get('velocity_range', (0, 0))),
+        'keyboard_pose_randomization': any(any(values) for values in bounds),
+        'reset_joint_position_range_rad': list(robot.get('position_range', (0, 0))),
+        'keyboard_reset_ranges': {key: value for key, value in keyboard.items()
+                                  if key in ('pose_range', 'x_range_m', 'y_range_m', 'yaw_range_rad')},
+    }
+
+
 def rotate_xyzw(q, v):
     x, y, z, w = q
     # q v q^-1 for a unit quaternion.

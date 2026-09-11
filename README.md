@@ -6,8 +6,10 @@ checkpoints and the published fixed-fixture benchmark are included as a starting
 point. Users can change the nominal keyboard pose, randomize placement during
 training, and deploy using the nominal geometry saved with their own policy.
 
-The new workflow is under qualification: container training/evaluation and
-hardware software dry runs are tested; second-robot physical validation is pending.
+The new six-letter policy passed 2,027/2,048 simulation episodes (98.97%) after
+32 min 14 s of training-loop time on an RTX 5090. Training, evaluation, placement
+tests and CPU deployment checks are measured; second-robot physical validation is pending.
+See [results and timing](docs/release/RESULTS.md).
 See [validation status](docs/release/STATUS.md) for evidence and limitations.
 
 ## Try a released policy
@@ -26,8 +28,8 @@ cd so101-keyboard-task-public
 ./so101 probe
 
 ./so101 video --actuator anchorbench \
-  --checkpoint .artifacts/so101-keyboard-typing-benchmark/checkpoints/mjwarp-anchorbench-19k/model_19000.pt \
-  --env-config .artifacts/so101-keyboard-typing-benchmark/configs/mjwarp-anchorbench-19k.env.yaml
+  --checkpoint .artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/model_549.pt \
+  --env-config .artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/params/env.yaml
 ```
 
 `video` writes an MP4 and evaluation report under `output/public/`. Use `play`

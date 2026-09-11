@@ -107,6 +107,7 @@ FAILURE_TERMS = (
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--physics-config", type=Path, help="Matching public physics JSON from training params")
 parser.add_argument("--task-config", type=Path, help="Matching public task JSON")
+parser.add_argument("--perturbation-config", type=Path, help="Explicit fixed-policy reset robustness experiment")
 parser.add_argument("--task", choices=tuple(TASK_CONTRACTS), required=True)
 parser.add_argument("--agent", default="rsl_rl_cfg_entry_point")
 parser.add_argument("--num-envs", type=int, default=1024)
@@ -359,6 +360,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg) -> None:
         apply_config(env_cfg, load_config(args_cli.physics_config))
     target_length, step_budget = _configure_protocol(env_cfg)
     artifact_contract = _validate_artifact_contract(env_cfg)
+    perturbation = None
+    if args_cli.perturbation_config:
+        from public_task import apply_perturbation, load_perturbation
+        perturbation = load_perturbation(args_cli.perturbation_config)
+        apply_perturbation(env_cfg, perturbation)
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.seed = args_cli.seed
     if args_cli.device is not None:
@@ -394,8 +400,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg) -> None:
             original_reset = command.reset
             action_trace: list[dict[str, object]] = []
             event_trace: list[dict[str, object]] = []
+            executed_steps = 0
 
             def reset_with_capture(env_ids=None):
+                # Preserve the final transition before the environment clears it.
+                if args_cli.num_envs == 1 and bool(stats["pending"][0]):
+                    event_trace.append({
+                        "step": executed_steps,
+                        "phase": int(command.phase[0].item()),
+                        "character_index": int(command.character_index[0].item()),
+                        **{name: bool(getattr(command, attr)[0].item()) for name, attr in (
+                            ("target_down", "target_down_event"), ("target_up", "target_up_event"),
+                            ("clearance", "clearance_event"), ("wrong_key", "wrong_key"),
+                            ("overlap", "overlap"), ("completed", "completed"))},
+                        "terminal": True,
+                    })
                 _capture(command, env, stats, env_ids, terminating=True)
                 return original_reset(env_ids)
 
@@ -421,7 +440,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg) -> None:
                     executed_steps = step + 1
                     pending_ids = torch.where(stats["pending"])[0]
                     _accumulate_events(command, stats, pending_ids)
-                    if args_cli.num_envs == 1:
+                    if args_cli.num_envs == 1 and bool(stats["pending"][0]):
                         event_trace.append(
                             {
                                 "step": step,
@@ -451,12 +470,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg) -> None:
                 & (stats["clearance_count"] == target_length)
             )
             strict_success = stats["terminal_completed"] & stats["terminal_typed_exact"] & exact_event_counts & ~failed
+            from public_task import evaluation_reset_metadata
             report = {
                 "kind": "so101_physical_calibrated_fixed_cartesian_strict_evaluation",
                 "checkpoint": str(checkpoint),
                 "checkpoint_sha256": _sha256(checkpoint),
                 "evaluator_sha256": _sha256(Path(__file__).resolve()),
                 "artifact_contract": artifact_contract,
+                "evaluation_mode": "fixed_policy_reset_robustness" if perturbation else "matched_training_contract",
+                "perturbation_config": perturbation,
                 "task": args_cli.task,
                 "actuator_profile": env_cfg.actuator_profile,
                 "keyboard_profile": env_cfg.keyboard_profile,
@@ -493,9 +515,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg) -> None:
                 "event_trace_env0": event_trace,
                 "protocol": {
                     "fresh_empty_typed_buffer": True,
-                    "exact_model_rest": True,
-                    "zero_joint_velocity": True,
-                    "keyboard_pose_randomization": False,
+                    **evaluation_reset_metadata(env_cfg),
                     "clearance_m": float(command.cfg.clearance_m),
                     "clearance_control_ticks": int(command.cfg.clearance_control_ticks),
                     "required_sequence": (

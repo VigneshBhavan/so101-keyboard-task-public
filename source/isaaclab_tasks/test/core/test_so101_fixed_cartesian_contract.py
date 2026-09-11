@@ -822,10 +822,11 @@ def test_neighbor_down_terminates_without_advancing() -> None:
     assert command.character_index.item() == 0
 
 
-def test_live_map_mismatch_fails_fast_after_key_state_initialization() -> None:
+@pytest.mark.parametrize("public_pose_randomization", [False, True])
+def test_live_map_mismatch_fails_fast_after_key_state_initialization(public_pose_randomization) -> None:
     command = object.__new__(FixedCartesianTypingCommand)
     command._env = SimpleNamespace(num_envs=1, device=torch.device("cpu"))
-    command.cfg = SimpleNamespace(map_tolerance_m=0.001)
+    command.cfg = SimpleNamespace(map_tolerance_m=0.001, public_pose_randomization=public_pose_randomization)
     command._map_validation_complete = False
     command._initialized = torch.tensor([True])
     command._map_checked = torch.tensor([False])
@@ -833,6 +834,7 @@ def test_live_map_mismatch_fails_fast_after_key_state_initialization() -> None:
     command.map_max_error_m = torch.zeros(1)
     command._letter_slots = torch.arange(26, dtype=torch.long)
     command._letter_xyz_b = torch.tensor(FROZEN_AZ_XYZ_B_M)
+    command._env._public_expected_key_xyz_b = command._letter_xyz_b.unsqueeze(0).clone()
     live_xyz_w = command._letter_xyz_b.clone()
     live_xyz_w[0, 0] += 0.002
     command.key_pos_w = lambda: live_xyz_w.unsqueeze(0)

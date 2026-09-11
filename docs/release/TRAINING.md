@@ -17,7 +17,26 @@ pass, as does a short P1A-to-Transit15 resume. These runs test the pipeline, not
 policy performance. First startup
 compiles Warp kernels; the named Docker cache volume reuses them on later runs.
 
-## Longer training
+## Measured short learning recipe
+
+The new public pipeline reached 100% over 2048 two-letter episodes, then 98.97%
+over 2048 six-letter episodes after 50 further updates. Reproduce that budget with:
+
+```bash
+./so101 train --actuator anchorbench --stage p1a \
+  --num-envs 4096 --iterations 501 --seed 1307
+./so101 train --actuator anchorbench --stage transit15 \
+  --checkpoint /absolute/path/to/P1A/model_500.pt \
+  --num-envs 4096 --iterations 50 --seed 1307
+```
+
+The measured training-loop time was 29 min 17 s plus 2 min 57 s on an RTX 5090.
+The resumed file is `model_549.pt`; it contains 551 cumulative update iterations
+because resume inherits the prior index. A new run still needs evaluation and
+rollout review. [RESULTS.md](RESULTS.md) records failures, timing provenance and
+placement tolerance. A 20,000-update run is not required to demonstrate this pipeline.
+
+## Optional larger budget
 
 A local two-stage recipe with a 20,000-update budget is:
 
@@ -79,7 +98,8 @@ inside a persistent terminal such as tmux for a long experiment:
 ./so101 build
 ./so101 setup-hardware
 python3 scripts/run_public_training_pipeline.py \
-  --out-dir output/full-training-seed1307 --prepare-deployment
+  --out-dir output/short-training-seed1307 \
+  --p1a-iterations 501 --transit-iterations 50 --prepare-deployment
 ```
 
 Defaults are 4096 environments, 4000 P1A updates, then 16000 additional Transit15

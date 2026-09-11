@@ -47,6 +47,30 @@ The robot's observation/action reference q_reset remains fixed; the actual reset
 arrival is randomized around it. Reset audits verify the actor map remains fixed.
 Evaluate on enough seeds and episodes before claiming coverage of a distribution.
 
+## Measure a fixed policy's placement tolerance
+
+Use an explicit perturbation file to vary actual reset placement while preserving
+the trained nominal actor map and policy weights:
+
+```bash
+./so101 evaluate --checkpoint /absolute/path/to/model_N.pt \
+  --env-config /absolute/path/to/params/env.yaml --num-envs 1024 --seed 2307 \
+  --perturbation-config configs/evaluation/placement-1mm.json
+```
+
+The training environment contract is validated before applying this separate
+experiment. The perturbation file accepts only `domain_randomization`, replaces
+the reset distribution, and cannot change nominal keyboard geometry or physics.
+Reports label this `fixed_policy_reset_robustness` and save the exact ranges.
+The supplied zero, +/-1 mm with +/-0.25 degree yaw, and +/-3 mm with +/-1 degree
+yaw files use zero robot reset noise. Compare the same checkpoint, seed, episode
+count and target-bank hash against the zero-offset control. This tests combined
+XY/yaw tolerance; it does not isolate each axis or measure hardware robustness.
+
+Measured results are in [RESULTS.md](RESULTS.md). Changing actuator physics is a
+separate experiment; the matched evaluator continues to reject physics-contract
+mismatches.
+
 ## Reproduce and deploy
 
 Training saves `params/public_task.json` with `params/env.yaml`. Evaluation and

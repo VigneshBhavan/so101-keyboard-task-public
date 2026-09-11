@@ -54,6 +54,19 @@ The bundle contains the checkpoint, its environment YAML, optional task/physics
 JSONs, nominal A-Z geometry, normalization, robot ID and a generated reset target.
 Its hashes and geometry are checked before the runner can connect to hardware.
 
+To check CPU inference against saved simulator actions, record a rollout with
+`./so101 video ... --trace-policy-actions 400`, then run:
+
+```bash
+.venv-hardware/bin/python -m scripts.so101_homing.check_actor_parity \
+  --checkpoint output/my_typing_robot/checkpoint.pt \
+  --report /absolute/path/to/video/evaluation.json
+```
+
+This verifies the checkpoint hash, observation normalization and deterministic
+Beta actor output against the recorded simulation trace. It does not connect to
+hardware or establish encoder alignment.
+
 `lerobot` means standard calibrated arm degrees converted to simulator radians,
 with no additional fitted offsets. `benchmark` reproduces the additional
 encoder-to-model corrections used for the published robot. Those corrections are

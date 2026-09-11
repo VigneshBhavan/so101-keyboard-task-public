@@ -9,6 +9,7 @@ from pathlib import Path
 import shlex
 import subprocess
 import sys
+import time
 
 ROOT = Path(__file__).resolve().parent
 IMAGE = 'so101-typing-public:dev'
@@ -70,6 +71,10 @@ def main():
         if operation in ('evaluate', 'play', 'video'):
             p.add_argument('--checkpoint', type=Path, required=True)
             p.add_argument('--env-config', type=Path, required=True)
+            p.add_argument('--trace-policy-actions', type=positive, default=8,
+                           help='record initial observations/actions for CPU deployment parity checks')
+            p.add_argument('--perturbation-config', type=Path,
+                           help='explicit fixed-policy reset robustness experiment; nominal actor map stays frozen')
         if operation in ('play', 'video'):
             p.add_argument('--target', help='letters to type; defaults to HE or NVIDIA for the selected stage')
     args = parser.parse_args()
@@ -129,13 +134,20 @@ def main():
             except (ValueError, OSError) as error:
                 parser.error(str(error))
     artifacts = {}
-    for name in ('checkpoint', 'env_config', 'physics_config', 'task_config'):
+    if getattr(args, 'perturbation_config', None):
+        sys.path.insert(0, str(ROOT / 'scripts/reinforcement_learning/rsl_rl'))
+        from public_task import load_perturbation
+        try:
+            load_perturbation(args.perturbation_config)
+        except (ValueError, OSError) as error:
+            parser.error(str(error))
+    for name in ('checkpoint', 'env_config', 'physics_config', 'task_config', 'perturbation_config'):
         path = getattr(args, name, None)
         if path is not None:
             path = path.expanduser().resolve()
             if not path.is_file():
                 parser.error(f'{name} is not a file: {path}')
-            destination = '/inputs/' + {'checkpoint': 'checkpoint.pt', 'env_config': 'env.yaml', 'physics_config': 'physics.json', 'task_config': 'task.json'}[name]
+            destination = '/inputs/' + {'checkpoint': 'checkpoint.pt', 'env_config': 'env.yaml', 'physics_config': 'physics.json', 'task_config': 'task.json', 'perturbation_config': 'perturbation.json'}[name]
             cmd += ['--mount', f'type=bind,src={path},dst={destination},readonly']
             artifacts[name] = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
     if args.command == 'play':
@@ -160,6 +172,7 @@ def main():
         cmd += ['-p', 'scripts/reinforcement_learning/rsl_rl/evaluate_so101_fixed_cartesian.py',
                 '--task', task, '--checkpoint', '/inputs/checkpoint.pt', '--env-config', '/inputs/env.yaml',
                 '--num-envs', str(args.num_envs), '--seed', str(args.seed), '--out', '/results/evaluation.json']
+        cmd += ['--trace-policy-actions', str(args.trace_policy_actions)]
         if args.command == 'play':
             cmd += ['--target', args.target, '--visualizer', 'newton', '--step-sleep', '0.04']
         elif args.command == 'video':
@@ -172,6 +185,8 @@ def main():
             cmd += ['--reset-audit-count', '3']
     if args.physics_config:
         cmd += ['--physics-config', '/inputs/physics.json']
+    if getattr(args, 'perturbation_config', None):
+        cmd += ['--perturbation-config', '/inputs/perturbation.json']
     cmd += ['physics=newton_mjwarp']
     print(shlex.join(cmd), flush=True)
     if args.plan:
@@ -183,10 +198,12 @@ def main():
     image_id = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'], text=True).strip()
     revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
     manifest = {'command': cmd, 'requested': vars(args), 'artifacts': artifacts,
+                'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'image_id': image_id, 'runtime_source_sha256': image_source, 'launcher_revision': revision,
                 'launcher_sha256': hashlib.sha256((ROOT / 'so101').read_bytes()).hexdigest(),
                 'note': 'Requested settings only; training params/env.yaml records resolved configuration.'}
     (output / 'request.json').write_text(json.dumps(manifest, default=str, indent=2) + '\n')
+    started = time.monotonic()
     with (output / 'console.log').open('w') as log:
         process = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
         for line in process.stdout:
@@ -194,7 +211,9 @@ def main():
             log.write(line)
             log.flush()
         result = process.wait()
-    (output / 'exit.json').write_text(json.dumps({'exit_code': result}) + '\n')
+    (output / 'exit.json').write_text(json.dumps({'exit_code': result,
+        'finished_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        'wall_seconds': time.monotonic() - started}) + '\n')
     return result
 
 
