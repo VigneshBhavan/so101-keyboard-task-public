@@ -26,7 +26,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-${SO101_ARTIFACT_DIR:-$repo_root/.artifacts/so101-keyboard-typing-benchmark}}"
 output_dir="$(mkdir -p "$output_dir" && realpath "$output_dir")"
-base_url="${SO101_HF_BASE_URL:-https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark/resolve/3dbcd90934ec4e4bb33596eacdcdd12a94899de7}"
+base_url="${SO101_HF_BASE_URL:-https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark/resolve/f4aa3be2add9c233ec04d969f7eeb7b80be6115a}"
 
 command -v sha256sum >/dev/null || { echo "ERROR: sha256sum is required" >&2; exit 1; }
 if command -v curl >/dev/null; then
@@ -84,8 +84,8 @@ download_and_verify() {
 # Both the immutable dataset revision above and every payload checksum are pinned.
 artifacts=(
   'README.md|2ce5067d74d9f1154ee3c69a0cfd439ea03d0d25ab642cf94ad3617314a9d139'
-  'RESULTS.md|449f8a5609625066a707e78f9bfc30578a3a7a8254d1c667fabf1749fdee321b'
-  'SHA256SUMS|c835fa0bf8f81ce15f28b15bb6f711edf830a604361fb3c8c0aa8c51e088788a'
+  'RESULTS.md|130c5557df2bc2577094fc2c65f4c500fc44e6c5677a0af79a59cc5b517cc59a'
+  'SHA256SUMS|2ea87c1cd250bad108af3f0eec9bfc71ad09f158b866030fa997b7e8bc43695f'
   'checkpoints/mjwarp-anchorbench-19k/model_19000.pt|239d93c99cd282e9add019f4ac952407c97fde2879821103a2aa7bd7a307a15f'
   'checkpoints/mjwarp-usd-19k/model_19000.pt|cc7f128e15a282a6f2fcc68e97f67c2e6f81bf6e03347b6a3cbf0b9a02d072a4'
   'checkpoints/mjwarp-workshop-19k/model_19000.pt|92cce575dad46f40f237060a509723d2c80a81c806f40dd1f6bfc41f44ce5910'
@@ -103,6 +103,7 @@ artifacts=(
   'configs/mjwarp-usd-19k.env.yaml|d14d60d19554326d66cbffc175c42166232968380980574ae36c196c9a0f7acb'
   'configs/mjwarp-workshop-19k.env.yaml|6c0c5a5f3a71159578b2ee69d5b379bc5482f1ad41eff7ac42ae30dccf96913b'
   'configs/sparse-vbd-anchorbench-20k.env.yaml|55215c907ce8b12c7b762c8eab2903790420cbbecd84a29bf88536df0da8ab2a'
+  'evaluation/fresh-checkout-software-validation.json|b01f2a04b542dda099153c66b35a0a40e179475e92f4b948a54639d65aeba5d3'
   'evaluation/mjwarp-anchorbench-19k.corpus_100x6_seed1307.json|0598e2f235bcd3e2279c08a9c6e75934b47e84b58553b21dfd0e0089b57ac66a'
   'evaluation/mjwarp-usd-19k.corpus_100x6_seed1307.json|9db2f161f5bebac4b5a4dd5c9457d13fe0eeadf8eb3e2e01b42d8358a3ef0305'
   'evaluation/mjwarp-workshop-19k.strict_1024_seed1307.json|b07039e361600770e68e982344c0be7fa8f789b23039acce2dddda2457812a38'

@@ -1,5 +1,5 @@
 {
-  "scope": "Local isolated-container software smoke tests; no hardware execution",
+  "scope": "Local public-container training, evaluation and deployment software checks; no hardware execution",
   "runs": [
     {
       "run": "output/public/20260911T010447.816372Z-train",
@@ -272,7 +272,7 @@
   ],
   "host_checks": {
     "command": "python3 -m pytest -q tests scripts/so101_homing/test",
-    "passed": 83,
+    "passed": 85,
     "skipped": 2,
     "subtests_passed": 7
   },
@@ -318,5 +318,178 @@
     "command": "python3 scripts/check_public_release.py",
     "result": "passed",
     "calibration_numeric_data_unchanged": true
+  },
+  "qualified_pipeline": {
+    "results": "RESULTS.md",
+    "p1a": {
+      "updates": 501,
+      "strict_successes": 2048,
+      "episodes": 2048,
+      "training_loop_seconds": 1757
+    },
+    "transit15": {
+      "additional_updates": 50,
+      "strict_successes": 2027,
+      "episodes": 2048,
+      "wrong_key_episodes": 3,
+      "scrape_episodes": 18,
+      "training_loop_seconds": 177,
+      "maximum_key_depression_fraction": 1.5788
+    },
+    "host_tests": {
+      "passed": 85,
+      "skipped": 2,
+      "subtests": 7
+    },
+    "newton_contract_tests": {
+      "passed": 37
+    },
+    "actor_parity": {
+      "kind": "simulation_to_cpu_actor_parity",
+      "checkpoint_sha256": "ea6c940f8a57797acaaca845bfb4b7cf2f1780f3d9571536b20998cbf114e0a8",
+      "report_sha256": "d83135a8ecffee5627a80ff4d51df1e74bffec04730fcd467e530b52c82dce73",
+      "samples": 261,
+      "maximum_absolute_action_error": 1.3113021850585938e-06,
+      "tolerance": 1e-05,
+      "passed": true,
+      "hardware_connected": false
+    },
+    "hardware_validated": false
+  },
+  "fresh_checkout": {
+    "source_revision": "5a8e5c0",
+    "scope": "Fresh Git clone and fresh Python environments on the same RTX 5090 workstation; Docker and package caches reused. Not an independent machine or robot.",
+    "dataset_revision_tested": "3dbcd90934ec4e4bb33596eacdcdd12a94899de7",
+    "operations": [
+      {
+        "command": [
+          "./so101",
+          "download"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 10.591058466990944
+      },
+      {
+        "command": [
+          "python3",
+          "scripts/check_public_release.py",
+          "--artifact-dir",
+          ".artifacts/so101-keyboard-typing-benchmark"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 1.4897732780082151
+      },
+      {
+        "command": [
+          "./so101",
+          "build"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 1.1045208499999717
+      },
+      {
+        "command": [
+          "./so101",
+          "probe"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 30.25147859903518
+      },
+      {
+        "command": [
+          "./so101",
+          "train",
+          "--num-envs",
+          "4",
+          "--iterations",
+          "1",
+          "--output-dir",
+          "output/startup-train"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 34.13633573096013
+      },
+      {
+        "command": [
+          "./so101",
+          "evaluate",
+          "--checkpoint",
+          ".artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/model_549.pt",
+          "--env-config",
+          ".artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/params/env.yaml",
+          "--num-envs",
+          "64",
+          "--seed",
+          "2307",
+          "--output-dir",
+          "output/released-evaluation"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 34.56428464199416
+      },
+      {
+        "command": [
+          "./so101",
+          "setup-hardware"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 1.8425335690262727
+      },
+      {
+        "command": [
+          "./so101",
+          "prepare-deployment",
+          "--checkpoint",
+          ".artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/model_549.pt",
+          "--env-config",
+          ".artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/params/env.yaml",
+          "--robot-id",
+          "fresh_user_software_validation",
+          "--encoder-convention",
+          "lerobot",
+          "--out-dir",
+          "output/deployment"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.6597290110075846
+      },
+      {
+        "command": [
+          "./so101",
+          "deploy",
+          "output/deployment",
+          "NVIDIA"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.71423954697093
+      },
+      {
+        "command": [
+          ".venv-hardware/bin/python",
+          "-m",
+          "scripts.so101_homing.check_actor_parity",
+          "--checkpoint",
+          ".artifacts/so101-keyboard-typing-benchmark/checkpoints/public-transit15-seed1307/model_549.pt",
+          "--report",
+          ".artifacts/so101-keyboard-typing-benchmark/evaluation/public-transit15-video-NVIDIA.json"
+        ],
+        "exit_code": 0,
+        "wall_seconds": 0.7203880490269512
+      }
+    ],
+    "released_policy_evaluation": {
+      "successes": 64,
+      "episodes": 64,
+      "seed": 2307
+    },
+    "host_tests": {
+      "passed": 85,
+      "skipped": 2,
+      "subtests": 7
+    },
+    "newton_contract_tests": {
+      "passed": 37
+    },
+    "hardware_commands_sent": 0
   }
 }

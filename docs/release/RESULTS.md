@@ -51,6 +51,15 @@ after episode termination. The evaluator now retains the terminal event before
 that reset. Rendering alone cannot establish contact forces or hardware safety;
 the batch scrape failures above remain part of the result.
 
+The reports also record peak key depression of **1.579 times nominal joint
+travel** for the six-letter policy (P1A: 1.540). The key joints therefore exceed
+their nominal travel range in this simulator. Strict typing success does not
+reject this overtravel, and zero excessive-contact terminations does not prove
+physically accurate contact. Key-stop compliance, solver penetration and contact
+forces need further qualification before interpreting simulation success as
+physical readiness. No physics parameters or success thresholds were changed to
+hide this finding.
+
 Key events come from simulated key-joint travel with hysteresis and dwell,
 not tip proximity alone. Strict success requires exact text and matching counts
 of key-down, key-up and clearance, without failure terminations. Transit15 uses
@@ -83,3 +92,9 @@ Host tests, Newton contract tests, container execution and CPU deployment checks
 are local software evidence. A clean-checkout test on this workstation is not an
 independent installation. Follow [REPRODUCTION.md](REPRODUCTION.md) on another
 machine and SO-101 before claiming complete new-user physical reproduction.
+
+A fresh checkout with new Python environments passed public download/audit,
+cached container build, GPU probe, one-update training, 64/64 released-policy
+episodes, hardware setup, export, dry run and CPU parity. The dataset includes
+`evaluation/fresh-checkout-software-validation.json`. Caches and the same GPU
+were reused; independent-machine and physical validation remain pending.

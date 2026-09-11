@@ -55,3 +55,12 @@ and 18 scrape failures. NVIDIA video passes; CPU inference matches 261 recorded
 actions within 1.32e-6. Training is stopped. Metadata cleanup preserves historical
 weights and numerical results, with relative checksums and pinned downloads.
 Independent installation and physical typing remain pending.
+Contact qualification is also incomplete: peak simulated key travel is 1.579
+times the nominal range for the new six-letter policy. Strict success preserves
+the existing event contract and does not reject that overtravel.
+
+A fresh Git clone and new Python environments passed all 10 software validation
+steps: public download/audit, cached image build, GPU probe, one-update training,
+64/64 released-policy episodes, hardware setup, export, dry run and CPU parity.
+Docker/package caches were reused on the same workstation; this does not count
+as independent-machine or physical reproduction.
