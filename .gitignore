@@ -1,0 +1,11 @@
+# Local policy downloads and generated run outputs.
+.artifacts/
+output/
+logs/
+
+# Python cache files.
+__pycache__/
+*.py[cod]
+
+# Isolated deployment Python environment.
+.venv-hardware/

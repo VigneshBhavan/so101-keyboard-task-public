@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "solver": "mjwarp",
+  "num_substeps": 2,
+  "actuator_parameters": {
+    "stiffness": 80.0,
+    "damping": 1.0
+  }
+}

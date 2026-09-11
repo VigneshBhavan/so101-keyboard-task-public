@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "domain_randomization": {
+    "keyboard_x_m": [-0.003, 0.003],
+    "keyboard_y_m": [-0.003, 0.003],
+    "keyboard_yaw_deg": [-1.0, 1.0],
+    "reset_joint_noise_rad": 0.005
+  }
+}

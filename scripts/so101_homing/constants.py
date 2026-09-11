@@ -1,0 +1,19 @@
+"""Stable SO-101 names shared by the homing tools."""
+
+ARM_JOINT_NAMES = (
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll",
+)
+
+DEFAULT_ROBOT_ID = "my_follower"
+DEFAULT_KEYBOARD_DEVICE = "/dev/input/by-id/usb-Logitech_USB_Receiver-event-kbd"
+DEFAULT_ROBOT_PORT = "/dev/serial/by-id/usb-1a86_USB_Single_Serial_5AE6079843-if00"
+HOMING_KEY_SEQUENCE = ("f", "y", "n")
+DEFAULT_CAPTURE_PHRASE = "".join(HOMING_KEY_SEQUENCE)
+
+# Fixed policy observation order. Registration preserves the physical position
+# of each label in this order for the typing policy handoff.
+POLICY_KEY_LABELS = tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ") + ("Backspace", "Space")

@@ -1,0 +1,202 @@
+#!/usr/bin/env python3
+"""Public SO-101 simulation entry point (host Python standard library only)."""
+import argparse
+import datetime
+import hashlib
+import json
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parent
+IMAGE = 'so101-typing-public:dev'
+PROFILES = {'anchorbench': 'AnchorBench', 'usd': 'USDDrive', 'workshop': 'Baseline'}
+STAGES = {'p1a': 'P1A', 'transit15': 'P1D-Transit15'}
+
+
+def source_fingerprint():
+    digest = hashlib.sha256()
+    for directory in ('source', 'scripts', 'runtime', 'docker'):
+        for path in sorted((ROOT / directory).rglob('*')):
+            if path.is_file() and '__pycache__' not in path.parts and path.suffix != '.pyc':
+                digest.update(str(path.relative_to(ROOT)).encode() + b'\0')
+                digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def positive(value):
+    value = int(value)
+    if value < 1:
+        raise argparse.ArgumentTypeError('must be positive')
+    return value
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest='command', required=True)
+    sub.add_parser('build', help='build the public runtime (requires Docker)')
+    sub.add_parser('download', help='download and verify released checkpoint artifacts')
+    sub.add_parser('setup-hardware', help='install an isolated CPU LeRobot deployment environment')
+    prep = sub.add_parser('prepare-deployment', help='export a portable checkpoint/geometry bundle; no hardware access')
+    prep.add_argument('--checkpoint', type=Path, required=True)
+    prep.add_argument('--env-config', type=Path, required=True)
+    prep.add_argument('--robot-id', required=True)
+    prep.add_argument('--encoder-convention', choices=('lerobot', 'benchmark'), required=True)
+    prep.add_argument('--out-dir', type=Path, required=True)
+    deploy = sub.add_parser('deploy', help='dry-run a deployment bundle; operator can opt in to hardware with --execute')
+    deploy.add_argument('bundle', type=Path)
+    deploy.add_argument('target')
+    deploy.add_argument('--execute', action='store_true')
+    deploy.add_argument('--port')
+    deploy.add_argument('--keyboard-device')
+    for operation in ('train', 'evaluate', 'play', 'video', 'probe'):
+        p = sub.add_parser(operation)
+        p.add_argument('--actuator', choices=PROFILES, default='anchorbench')
+        p.add_argument('--task-config', type=Path, help='Keyboard pose/DR JSON; restored from params/public_task.json')
+        p.add_argument('--physics-config', type=Path, help='Newton MJWarp JSON; evaluation discovers params/public_physics.json automatically')
+        p.add_argument('--solver', choices=['mjwarp'], default='mjwarp')
+        p.add_argument('--stage', choices=STAGES, default='transit15')
+        p.add_argument('--num-envs', type=positive, default=1 if operation in ('play', 'video', 'probe') else 64)
+        p.add_argument('--seed', type=int, default=1307)
+        p.add_argument('--plan', action='store_true', help='print command without executing or writing output')
+        p.add_argument('--image', default=IMAGE)
+        p.add_argument('--output-dir', type=Path, help='New directory for this run; must not already exist')
+        if operation == 'train':
+            p.set_defaults(stage='p1a')
+            p.add_argument('--checkpoint', type=Path, help='resume weights and optimizer from this checkpoint')
+            p.add_argument('--iterations', type=positive, default=10, help='10 is a smoke run, not a trained policy')
+        if operation in ('evaluate', 'play', 'video'):
+            p.add_argument('--checkpoint', type=Path, required=True)
+            p.add_argument('--env-config', type=Path, required=True)
+        if operation in ('play', 'video'):
+            p.add_argument('--target', help='letters to type; defaults to HE or NVIDIA for the selected stage')
+    args = parser.parse_args()
+    if args.command == 'setup-hardware':
+        return subprocess.call([str(ROOT / 'scripts/setup_hardware.sh')])
+    if args.command in ('prepare-deployment', 'deploy'):
+        python = os.environ.get('SO101_LEROBOT_PYTHON', str(ROOT / '.venv-hardware/bin/python'))
+        if not Path(python).is_file():
+            parser.error('run ./so101 setup-hardware first or set SO101_LEROBOT_PYTHON to its absolute Python path')
+        if args.command == 'prepare-deployment':
+            command = [python, '-m', 'scripts.so101_homing.deployment_bundle', '--checkpoint', str(args.checkpoint.resolve()),
+                       '--env-config', str(args.env_config.resolve()), '--robot-id', args.robot_id,
+                       '--encoder-convention', args.encoder_convention, '--out-dir', str(args.out_dir.resolve())]
+        else:
+            command = [python, '-m', 'scripts.so101_homing.deploy_bundle', str(args.bundle.resolve()), args.target]
+            if args.execute: command += ['--execute']
+            if args.port: command += ['--port', args.port]
+            if args.keyboard_device: command += ['--keyboard-device', args.keyboard_device]
+        return subprocess.call(command, cwd=ROOT)
+    if args.command == 'build':
+        return subprocess.call(['docker', 'build', '-f', 'docker/typing-public.Dockerfile', '--build-arg', 'SOURCE_SHA256=' + source_fingerprint(), '-t', IMAGE, '.'], cwd=ROOT)
+    if args.command == 'download':
+        return subprocess.call([str(ROOT / 'scripts/download_benchmark_artifacts.sh')], cwd=ROOT)
+    if args.command in ('play', 'video'):
+        args.target = (args.target or ('HE' if args.stage == 'p1a' else 'NVIDIA')).upper()
+        expected = 2 if args.stage == 'p1a' else 6
+        if len(args.target) != expected or any(c not in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' for c in args.target):
+            parser.error(f'{args.stage} requires exactly {expected} A-Z letters')
+    task = 'Isaac-Keyboard-SO101-MX-Physical-Calibrated-20260718-FixedCartesian-' + PROFILES[args.actuator] + '-' + STAGES[args.stage]
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
+    output = args.output_dir.expanduser().resolve() if args.output_dir else ROOT / 'output' / 'public' / (stamp + '-' + args.command)
+    cmd = ['docker', 'run', '--rm', '--gpus', 'all', '--ipc=host', '-e', 'OMNICLIENT_HUB_MODE=disabled',
+           '--mount', 'type=volume,src=so101-typing-warp-cache,dst=/root/.cache/warp',
+           '--mount', f'type=bind,src={output},dst=/results',
+           '--mount', f'type=bind,src={output},dst=/workspace/isaaclab/logs']
+    for kind in ('physics', 'task'):
+        attr = kind + '_config'
+        path = getattr(args, attr)
+        if path is None:
+            directory = None
+            if args.command in ('evaluate', 'play', 'video'):
+                directory = args.env_config.expanduser().resolve().parent
+            elif args.command == 'train' and args.checkpoint:
+                directory = args.checkpoint.expanduser().resolve().parent / 'params'
+            if directory is not None:
+                candidate = directory / ('public_' + kind + '.json')
+                if candidate.is_file():
+                    path = candidate
+                    setattr(args, attr, path)
+        if path:
+            if kind == 'physics' and args.command == 'probe':
+                parser.error('custom physics probes are not yet supported; use a short training run')
+            sys.path.insert(0, str(ROOT / 'scripts/reinforcement_learning/rsl_rl'))
+            from importlib import import_module
+            try:
+                import_module('public_' + kind).load_config(path)
+            except (ValueError, OSError) as error:
+                parser.error(str(error))
+    artifacts = {}
+    for name in ('checkpoint', 'env_config', 'physics_config', 'task_config'):
+        path = getattr(args, name, None)
+        if path is not None:
+            path = path.expanduser().resolve()
+            if not path.is_file():
+                parser.error(f'{name} is not a file: {path}')
+            destination = '/inputs/' + {'checkpoint': 'checkpoint.pt', 'env_config': 'env.yaml', 'physics_config': 'physics.json', 'task_config': 'task.json'}[name]
+            cmd += ['--mount', f'type=bind,src={path},dst={destination},readonly']
+            artifacts[name] = {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+    if args.command == 'play':
+        if not os.environ.get('DISPLAY'):
+            parser.error('play requires DISPLAY and an accessible X11 display')
+        cmd += ['-e', 'DISPLAY=' + os.environ['DISPLAY'], '-e', 'NVIDIA_DRIVER_CAPABILITIES=all',
+                '-v', '/tmp/.X11-unix:/tmp/.X11-unix:ro']
+        authority = os.environ.get('XAUTHORITY')
+        if authority and Path(authority).is_file():
+            cmd += ['-v', f'{authority}:/tmp/typing.xauthority:ro', '-e', 'XAUTHORITY=/tmp/typing.xauthority']
+    cmd += [args.image]
+    if args.command == 'train':
+        cmd += ['train', '--rl_library', 'rsl_rl', '--task', task, '--num_envs', str(args.num_envs),
+                '--max_iterations', str(args.iterations), '--seed', str(args.seed), '--headless']
+        if args.checkpoint:
+            cmd += ['--resume', '--checkpoint', '/inputs/checkpoint.pt']
+    elif args.command == 'probe':
+        cmd += ['-p', 'scripts/reinforcement_learning/rsl_rl/probe_so101_fixed_cartesian.py',
+                '--task', task, '--num-envs', str(args.num_envs), '--seed', str(args.seed), '--headless',
+                '--skip-logical-switch-probe', '--skip-physical-contact-probe']
+    else:
+        cmd += ['-p', 'scripts/reinforcement_learning/rsl_rl/evaluate_so101_fixed_cartesian.py',
+                '--task', task, '--checkpoint', '/inputs/checkpoint.pt', '--env-config', '/inputs/env.yaml',
+                '--num-envs', str(args.num_envs), '--seed', str(args.seed), '--out', '/results/evaluation.json']
+        if args.command == 'play':
+            cmd += ['--target', args.target, '--visualizer', 'newton', '--step-sleep', '0.04']
+        elif args.command == 'video':
+            cmd += ['--target', args.target, '--video', '--headless']
+        else:
+            cmd += ['--headless']
+    if args.task_config:
+        cmd += ['--task-config', '/inputs/task.json']
+        if args.command == 'probe':
+            cmd += ['--reset-audit-count', '3']
+    if args.physics_config:
+        cmd += ['--physics-config', '/inputs/physics.json']
+    cmd += ['physics=newton_mjwarp']
+    print(shlex.join(cmd), flush=True)
+    if args.plan:
+        return 0
+    image_source = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{index .Config.Labels \"org.so101.source-sha256\"}}'], text=True).strip()
+    if image_source != source_fingerprint():
+        parser.error('runtime image does not match this source checkout; run ./so101 build')
+    output.mkdir(parents=True, exist_ok=False)
+    image_id = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'], text=True).strip()
+    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    manifest = {'command': cmd, 'requested': vars(args), 'artifacts': artifacts,
+                'image_id': image_id, 'runtime_source_sha256': image_source, 'launcher_revision': revision,
+                'launcher_sha256': hashlib.sha256((ROOT / 'so101').read_bytes()).hexdigest(),
+                'note': 'Requested settings only; training params/env.yaml records resolved configuration.'}
+    (output / 'request.json').write_text(json.dumps(manifest, default=str, indent=2) + '\n')
+    with (output / 'console.log').open('w') as log:
+        process = subprocess.Popen(cmd, cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        for line in process.stdout:
+            print(line, end='', flush=True)
+            log.write(line)
+            log.flush()
+        result = process.wait()
+    (output / 'exit.json').write_text(json.dumps({'exit_code': result}) + '\n')
+    return result
+
+
+if __name__ == '__main__':
+    sys.exit(main())

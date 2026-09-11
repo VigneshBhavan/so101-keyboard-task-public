@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "solver": "mjwarp",
+  "num_substeps": 4,
+  "solver_parameters": {
+    "iterations": 50,
+    "ls_iterations": 15,
+    "tolerance": 0.000001
+  }
+}

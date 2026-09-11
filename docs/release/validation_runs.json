@@ -1,0 +1,322 @@
+{
+  "scope": "Local isolated-container software smoke tests; no hardware execution",
+  "runs": [
+    {
+      "run": "output/public/20260911T010447.816372Z-train",
+      "operation": "train",
+      "actuator": "anchorbench",
+      "custom_physics": false,
+      "exit_code": 0,
+      "image_id": "sha256:53dc4a89ef765ec04129b2768ea22833ce3e5d26801bd90c265d866c86192ded"
+    },
+    {
+      "run": "output/public/20260911T010651.088116Z-probe",
+      "operation": "probe",
+      "actuator": "anchorbench",
+      "custom_physics": false,
+      "exit_code": 0,
+      "image_id": "sha256:e6570043908af217582ecea014c408a3497c8ad75af34cb2bd1fcb0b9d00c839"
+    },
+    {
+      "run": "output/public/20260911T010721.493187Z-train",
+      "operation": "train",
+      "actuator": "usd",
+      "custom_physics": false,
+      "exit_code": 0,
+      "image_id": "sha256:e6570043908af217582ecea014c408a3497c8ad75af34cb2bd1fcb0b9d00c839"
+    },
+    {
+      "run": "output/public/20260911T010755.390070Z-train",
+      "operation": "train",
+      "actuator": "workshop",
+      "custom_physics": false,
+      "exit_code": 0,
+      "image_id": "sha256:e6570043908af217582ecea014c408a3497c8ad75af34cb2bd1fcb0b9d00c839"
+    },
+    {
+      "run": "output/public/20260911T010841.271505Z-evaluate",
+      "operation": "evaluate",
+      "actuator": "anchorbench",
+      "custom_physics": false,
+      "exit_code": 0,
+      "image_id": "sha256:e6570043908af217582ecea014c408a3497c8ad75af34cb2bd1fcb0b9d00c839",
+      "evaluation": {
+        "num_envs": 4,
+        "typed_exact_rate": 1.0,
+        "wrong_key_rate": 0.0
+      }
+    },
+    {
+      "run": "output/public/20260911T011132.163757Z-train",
+      "operation": "train",
+      "actuator": "usd",
+      "custom_physics": true,
+      "exit_code": 0,
+      "image_id": "sha256:bce562942b6b0ab9bd7fbbff7af52fdc291670b2a13667498a1f21e3e60f3437"
+    },
+    {
+      "run": "output/public/20260911T011220.465685Z-evaluate",
+      "operation": "evaluate",
+      "actuator": "usd",
+      "custom_physics": true,
+      "exit_code": 0,
+      "image_id": "sha256:91b99aaac738a2402dcc028d33c130ad7676d922c18d26bc2106e35202be6d2c",
+      "evaluation": {
+        "num_envs": 4,
+        "typed_exact_rate": 0.0,
+        "wrong_key_rate": 0.0
+      }
+    },
+    {
+      "run": "output/public/20260911T011452.484694Z-train",
+      "operation": "train",
+      "actuator": "usd",
+      "custom_physics": true,
+      "exit_code": 0,
+      "image_id": "sha256:91b99aaac738a2402dcc028d33c130ad7676d922c18d26bc2106e35202be6d2c"
+    },
+    {
+      "run": "output/public/20260911T011556.445405Z-evaluate",
+      "operation": "evaluate",
+      "actuator": "usd",
+      "custom_physics": true,
+      "exit_code": 0,
+      "image_id": "sha256:be4ad32dc88974dc5fc6f9f51870904d4e4da1d10c02168341a085dad4efba61",
+      "evaluation": {
+        "num_envs": 4,
+        "typed_exact_rate": 0.0,
+        "wrong_key_rate": 0.0
+      }
+    },
+    {
+      "run": "output/public/20260911T011628.630690Z-train",
+      "operation": "train",
+      "actuator": "usd",
+      "custom_physics": true,
+      "exit_code": 0,
+      "image_id": "sha256:be4ad32dc88974dc5fc6f9f51870904d4e4da1d10c02168341a085dad4efba61"
+    },
+    {
+      "run": "output/public/20260911T011801.118763Z-train",
+      "operation": "train",
+      "actuator": "usd",
+      "custom_physics": true,
+      "exit_code": 0,
+      "image_id": "sha256:be4ad32dc88974dc5fc6f9f51870904d4e4da1d10c02168341a085dad4efba61"
+    },
+    {
+      "run": "output/public/20260911T015030.474922Z-probe",
+      "operation": "probe",
+      "actuator": "anchorbench",
+      "num_envs": 1,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": true,
+      "exit_code": 0,
+      "image_id": "sha256:2b02058b15c5a3ad6e213b5e8e0122b70a24bf4170e8d4105b8c39ffd961ed20",
+      "runtime_source_sha256": "3fb144fe90b87d37ed84b5cee3dd510fb2d704b81c403e49123234dbbea5cb0b"
+    },
+    {
+      "run": "output/public/20260911T015430.470942Z-train",
+      "operation": "train",
+      "actuator": "anchorbench",
+      "num_envs": 4,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": true,
+      "exit_code": 0,
+      "image_id": "sha256:e7c16651f3f696de8a51c952f6a2781803fb3983b1052d8c3bd1910c9e995619",
+      "runtime_source_sha256": "38bcb74f77475f86b73c11abdd830790b743bc1a62575c7f3ad8c0648c8c7987",
+      "additional_training_iterations": 1
+    },
+    {
+      "run": "output/public/20260911T015617.616280Z-video",
+      "operation": "video",
+      "actuator": "anchorbench",
+      "num_envs": 1,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": false,
+      "exit_code": 0,
+      "image_id": "sha256:e67c04311ef84aaf3f2da876c086f599b93e6f980865671a7c4712a64fbc9b57",
+      "runtime_source_sha256": "b1b49535a3978f1d396c764bf68a60f051422b33a8bd59c43ee6508f2a6d6ad9",
+      "evaluation": {
+        "num_envs": 1,
+        "typed_exact_rate": 1.0,
+        "wrong_key_rate": 0.0
+      },
+      "video": "videos/evaluation-step-0.mp4"
+    },
+    {
+      "run": "output/public/20260911T015813.748149Z-evaluate",
+      "operation": "evaluate",
+      "actuator": "anchorbench",
+      "num_envs": 4,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": true,
+      "exit_code": 0,
+      "image_id": "sha256:2a7ae51376ab2148d872b975ee6521d3963a95ff68a93f745128a0f5b507b77d",
+      "runtime_source_sha256": "8d2759943feefd67bd2f342ae26dff722317034f2ef3e0c4e1680dfd187b174e",
+      "evaluation": {
+        "num_envs": 4,
+        "typed_exact_rate": 0.0,
+        "wrong_key_rate": 0.0
+      }
+    },
+    {
+      "run": "output/public/20260911T015847.902719Z-train",
+      "operation": "train",
+      "actuator": "usd",
+      "num_envs": 4,
+      "seed": 1307,
+      "custom_physics": true,
+      "custom_task": true,
+      "exit_code": 0,
+      "image_id": "sha256:2a7ae51376ab2148d872b975ee6521d3963a95ff68a93f745128a0f5b507b77d",
+      "runtime_source_sha256": "8d2759943feefd67bd2f342ae26dff722317034f2ef3e0c4e1680dfd187b174e",
+      "additional_training_iterations": 1
+    },
+    {
+      "run": "output/public/20260911T020053.828186Z-evaluate",
+      "operation": "evaluate",
+      "actuator": "usd",
+      "num_envs": 4,
+      "seed": 1307,
+      "custom_physics": true,
+      "custom_task": true,
+      "exit_code": 0,
+      "image_id": "sha256:766b3a24adaaf91d09d2de820dd6eddafacf5c1254f7185ab66ef2cc226b0bef",
+      "runtime_source_sha256": "ae03dfc0b756220a1eb8fc0c3a2228cc2ad9e68156b4be4c25a0643438f83949",
+      "evaluation": {
+        "num_envs": 4,
+        "typed_exact_rate": 0.0,
+        "wrong_key_rate": 0.0
+      }
+    },
+    {
+      "run": "output/public/20260911T020127.789385Z-video",
+      "operation": "video",
+      "actuator": "anchorbench",
+      "num_envs": 1,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": false,
+      "exit_code": 0,
+      "image_id": "sha256:766b3a24adaaf91d09d2de820dd6eddafacf5c1254f7185ab66ef2cc226b0bef",
+      "runtime_source_sha256": "ae03dfc0b756220a1eb8fc0c3a2228cc2ad9e68156b4be4c25a0643438f83949",
+      "evaluation": {
+        "num_envs": 1,
+        "typed_exact_rate": 1.0,
+        "wrong_key_rate": 0.0
+      },
+      "video": "videos/evaluation-step-0.mp4"
+    },
+    {
+      "run": "output/public/20260911T020630.760245Z-train",
+      "operation": "train",
+      "actuator": "anchorbench",
+      "num_envs": 64,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": false,
+      "exit_code": 0,
+      "image_id": "sha256:766b3a24adaaf91d09d2de820dd6eddafacf5c1254f7185ab66ef2cc226b0bef",
+      "runtime_source_sha256": "ae03dfc0b756220a1eb8fc0c3a2228cc2ad9e68156b4be4c25a0643438f83949",
+      "additional_training_iterations": 10
+    },
+    {
+      "run": "output/public/20260911T020831.924807Z-train",
+      "operation": "train",
+      "actuator": "anchorbench",
+      "num_envs": 64,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": false,
+      "exit_code": 0,
+      "image_id": "sha256:3a272994c79a7b24347a90ea47796c4237219165bb53ffacf10e49aefb023efb",
+      "runtime_source_sha256": "a891c73c2c2a3766b9f1fb351551693b3a5ce9a67dd5fed58b1b2d6e46562cfd",
+      "additional_training_iterations": 1,
+      "resumed_checkpoint": true
+    },
+    {
+      "run": "output/public/20260911T020906.716109Z-train",
+      "operation": "train",
+      "actuator": "anchorbench",
+      "num_envs": 64,
+      "seed": 1307,
+      "custom_physics": false,
+      "custom_task": true,
+      "exit_code": 0,
+      "image_id": "sha256:3a272994c79a7b24347a90ea47796c4237219165bb53ffacf10e49aefb023efb",
+      "runtime_source_sha256": "a891c73c2c2a3766b9f1fb351551693b3a5ce9a67dd5fed58b1b2d6e46562cfd",
+      "additional_training_iterations": 10
+    },
+    {
+      "run": "output/public/20260911T024549.036783Z-train",
+      "operation": "train",
+      "actuator": "anchorbench",
+      "num_envs": 4096,
+      "seed": 1307,
+      "additional_training_iterations": 10,
+      "custom_physics": false,
+      "custom_task": false,
+      "exit_code": 0,
+      "image_id": "sha256:4b48235bce2c0afc81c59428b640a39dee3927848df162ee10fd61558f465159",
+      "runtime_source_sha256": "09607f3512521a1b4420e1009ba6146985d0d42ffa5e83ba58e815f9dea41ef9",
+      "training_time_seconds": 36.72,
+      "steady_iteration_time_seconds_approx": 3.33,
+      "observed_total_gpu_memory_mib": 17560,
+      "memory_note": "One nvidia-smi sample during training; includes desktop and is not a peak measurement."
+    }
+  ],
+  "host_checks": {
+    "command": "python3 -m pytest -q tests scripts/so101_homing/test",
+    "passed": 83,
+    "skipped": 2,
+    "subtests_passed": 7
+  },
+  "hardware_environment": {
+    "python": "3.12.13",
+    "lerobot_revision": "b6ec0060779550c0a157ae34feb89e0cf86012a8",
+    "torch": "2.11.0+cpu",
+    "gpu_runtime": false,
+    "setup_and_imports": "passed",
+    "calibration_cli_help": "passed",
+    "robot_motion_executed": false
+  },
+  "deployment_dry_runs": [
+    {
+      "bundle": "output/deployment-standard",
+      "encoder_convention": "lerobot",
+      "task_contract": "physical_calibrated_20260718_fixed_cartesian_anchorbench_p1d_transit15_letters6_v0",
+      "checkpoint_sha256": "239d93c99cd282e9add019f4ac952407c97fde2879821103a2aa7bd7a307a15f",
+      "log": "output/deployment-standard/runs/dry_run.jsonl",
+      "status": "dry_run_ready",
+      "no_robot_commands": true
+    },
+    {
+      "bundle": "output/deployment-moved-keyboard",
+      "encoder_convention": "lerobot",
+      "task_contract": "physical_calibrated_20260718_fixed_cartesian_usd_drive_p1a_letters2_v0_task_1b30fe458c98ffa46b2aca6b1edc6c26da77a31f2043746fbfafb9388288026c_physics_3fdb1fe93475ae78bbe4ce05cb641bd09e06712ae851ee5081b1888949eb1841",
+      "checkpoint_sha256": "1b208c7a8b2c56fb78e6f88d09bed8c0d24e6b304436c26f9047d0f6052715f9",
+      "log": "output/deployment-moved-keyboard/runs/20260911T020127.069904Z_dry_run.jsonl",
+      "status": "dry_run_ready",
+      "no_robot_commands": true
+    }
+  ],
+  "supervisor_smoke": {
+    "run": "output/pipeline-supervisor-smoke-20260910",
+    "expected_status": "p1a_quality_gate_failed",
+    "observed_status": "p1a_quality_gate_failed",
+    "untrained_checkpoint_strict_success": 0.0,
+    "video_saved": true,
+    "transit15_started": false,
+    "test_passed": true
+  },
+  "public_source_check": {
+    "command": "python3 scripts/check_public_release.py",
+    "result": "passed",
+    "calibration_numeric_data_unchanged": true
+  }
+}

@@ -1,0 +1,2172 @@
+diff --git a/source/isaaclab/isaaclab/app/app_launcher.py b/source/isaaclab/isaaclab/app/app_launcher.py
+index fdb3f3219..b0563f0a3 100644
+--- a/source/isaaclab/isaaclab/app/app_launcher.py
++++ b/source/isaaclab/isaaclab/app/app_launcher.py
+@@ -43,6 +43,32 @@ logging.getLogger("matplotlib").setLevel(logging.WARNING)
+ logging.getLogger("h5py").setLevel(logging.WARNING)
+ 
+ 
++def sync_warp_default_device(device_str: str) -> None:
++    """Align Warp's default device with a per-rank ``torch.cuda.set_device`` selection.
++
++    In distributed (multi-GPU) runs each process binds a single GPU (``cuda:<local_rank>``). If Warp's
++    runtime was initialized *before* that binding (e.g. ``wp.init()`` ran while the process still
++    defaulted to ``cuda:0``), Warp keeps ``cuda:0`` as its default device. Newton/MJWarp CUDA-graph
++    capture then allocates on the wrong device on non-zero ranks and fails with
++    ``CUDA error 900: operation not permitted when stream is capturing``.
++
++    Call this right after ``torch.cuda.set_device(device_str)``. It only overrides when Warp is already
++    imported *and* initialized; otherwise Warp picks up the correct device on its own lazy init (the
++    ``torch.cuda.set_device`` above has already run), and we avoid force-initializing Warp in processes
++    that never use it.
++
++    Args:
++        device_str: Target device, e.g. ``"cuda:1"``. Non-CUDA values are ignored.
++    """
++    if "cuda" not in device_str:
++        return
++    warp_module = sys.modules.get("warp")
++    warp_context = sys.modules.get("warp._src.context")
++    if warp_module is not None and warp_context is not None and getattr(warp_context, "runtime", None) is not None:
++        warp_module.set_device(device_str)
++        logger.info("Synced Warp default device to %s (after torch.cuda.set_device).", device_str)
++
++
+ class ExplicitAction(argparse.Action):
+     """Custom action to track if an argument was explicitly passed by the user."""
+ 
+diff --git a/source/isaaclab/isaaclab/devices/keyboard/se3_keyboard.py b/source/isaaclab/isaaclab/devices/keyboard/se3_keyboard.py
+index 20e6dccf7..2342bff9b 100644
+--- a/source/isaaclab/isaaclab/devices/keyboard/se3_keyboard.py
++++ b/source/isaaclab/isaaclab/devices/keyboard/se3_keyboard.py
+@@ -78,7 +78,7 @@ class Se3Keyboard(DeviceBase):
+         # bindings for keyboard to command
+         self._create_key_bindings()
+         # command buffers
+-        self._close_gripper = False
++        self._close_gripper = True
+         self._delta_pos = np.zeros(3)  # (x, y, z)
+         self._delta_rot = np.zeros(3)  # (roll, pitch, yaw)
+         # dictionary for additional callbacks
+@@ -109,7 +109,7 @@ class Se3Keyboard(DeviceBase):
+ 
+     def reset(self):
+         # default flags
+-        self._close_gripper = False
++        self._close_gripper = True
+         self._delta_pos = np.zeros(3)  # (x, y, z)
+         self._delta_rot = np.zeros(3)  # (roll, pitch, yaw)
+ 
+diff --git a/source/isaaclab/isaaclab/envs/manager_based_rl_env.py b/source/isaaclab/isaaclab/envs/manager_based_rl_env.py
+index d06c77a00..01b66e097 100644
+--- a/source/isaaclab/isaaclab/envs/manager_based_rl_env.py
++++ b/source/isaaclab/isaaclab/envs/manager_based_rl_env.py
+@@ -90,6 +90,18 @@ class ManagerBasedRLEnv(ManagerBasedEnv, gym.Env):
+         # store the render mode
+         self.render_mode = render_mode
+ 
++        # If the active physics backend exposes a NaN debug buffer, let it record per-env
++        # episode length alongside the captured state (backend-agnostic; no-op otherwise).
++        _physics_manager = getattr(self.sim, "physics_manager", None)
++        if _physics_manager is not None and hasattr(_physics_manager, "set_debug_episode_length"):
++            try:
++                # Register a callable, not the tensor: ``episode_length_buf`` may be
++                # reallocated after this point, which would stale a captured reference
++                # (it read 0). The buffer resolves this lazily each step.
++                _physics_manager.set_debug_episode_length(lambda: self.episode_length_buf)
++            except Exception:
++                pass
++
+         # initialize data and constants
+         # -- set the framerate of the gym video recorder wrapper so that the playback speed of the
+         #    produced video matches the simulation
+diff --git a/source/isaaclab_newton/changelog.d/anchored_model.rst b/source/isaaclab_newton/changelog.d/anchored_model.rst
+new file mode 100644
+index 000000000..342a6cb40
+--- /dev/null
++++ b/source/isaaclab_newton/changelog.d/anchored_model.rst
+@@ -0,0 +1,5 @@
++Changed
++^^^^^^^
++
++* Changed Newton articulations to write configured actuator viscous friction
++  values into MuJoCo passive damping when the solver exposes that field.
+diff --git a/source/isaaclab_newton/isaaclab_newton/assets/articulation/articulation.py b/source/isaaclab_newton/isaaclab_newton/assets/articulation/articulation.py
+index 8d7d9e5ef..6340b8c73 100644
+--- a/source/isaaclab_newton/isaaclab_newton/assets/articulation/articulation.py
++++ b/source/isaaclab_newton/isaaclab_newton/assets/articulation/articulation.py
+@@ -12,6 +12,7 @@ import importlib.util
+ import logging
+ import warnings
+ from collections.abc import Sequence
++from numbers import Real
+ from typing import TYPE_CHECKING
+ 
+ import numpy as np
+@@ -52,6 +53,93 @@ if TYPE_CHECKING:
+ logger = logging.getLogger(__name__)
+ 
+ 
++def _indices_to_list(indices: object, length: int | None = None) -> list[int]:
++    """Convert supported index containers to a Python list."""
++    if indices is None:
++        if length is None:
++            raise ValueError("length is required when indices is None")
++        return list(range(length))
++    if isinstance(indices, slice):
++        if length is None:
++            raise ValueError("length is required when indices is a slice")
++        return list(range(length))[indices]
++    if isinstance(indices, torch.Tensor):
++        return [int(value) for value in indices.detach().cpu().tolist()]
++    if isinstance(indices, wp.array):
++        return [int(value) for value in wp.to_torch(indices).detach().cpu().tolist()]
++    return [int(value) for value in indices]
++
++
++def _values_shape(values: object) -> tuple[int, ...] | None:
++    """Return the shape for non-scalar joint values."""
++    if isinstance(values, Real):
++        return None
++    if isinstance(values, torch.Tensor):
++        return tuple(values.shape)
++    if isinstance(values, wp.array):
++        return tuple(wp.to_torch(values).shape)
++    return tuple(np.asarray(values).shape)
++
++
++def _values_to_numpy(values: object, shape: tuple[int, int]) -> np.ndarray:
++    """Convert scalar, torch, Warp, or array-like joint values to a NumPy matrix."""
++    if isinstance(values, Real):
++        return np.full(shape, float(values), dtype=np.float32)
++    if isinstance(values, torch.Tensor):
++        values_np = values.detach().cpu().numpy()
++    elif isinstance(values, wp.array):
++        values_np = wp.to_torch(values).detach().cpu().numpy()
++    else:
++        values_np = np.asarray(values, dtype=np.float32)
++    if values_np.shape != shape:
++        raise ValueError(f"expected viscous_friction values with shape {shape}, got {values_np.shape}")
++    return values_np.astype(np.float32, copy=False)
++
++
++def _write_mujoco_passive_damping(
++    newton_model: object, values: object, joint_ids: object, num_dofs: int, env_ids: object = None
++) -> None:
++    """Write joint viscous friction into Newton/MuJoCo passive damping."""
++    mujoco_ns = getattr(newton_model, "mujoco", None)
++    if mujoco_ns is None or not hasattr(mujoco_ns, "dof_passive_damping"):
++        raise RuntimeError("Newton model has no mujoco.dof_passive_damping for viscous_friction")
++
++    joint_id_list = _indices_to_list(joint_ids, num_dofs)
++    damping = mujoco_ns.dof_passive_damping
++    damping_np = damping.numpy()
++    values_shape = _values_shape(values)
++    values_num_envs = values_shape[0] if values_shape is not None and len(values_shape) == 2 else None
++
++    if damping_np.ndim == 2 and damping_np.shape[1] != 1:
++        num_envs = damping_np.shape[0]
++        dofs_per_env = damping_np.shape[1]
++        damping_view = damping_np
++        is_batched_layout = True
++    else:
++        damping_view = damping_np.reshape(-1)
++        if env_ids is None and values_num_envs is not None:
++            num_envs = values_num_envs
++        else:
++            num_envs = int(damping_view.shape[0] // num_dofs)
++        if num_envs <= 0 or damping_view.shape[0] % num_envs != 0:
++            raise ValueError(f"cannot infer MuJoCo passive damping stride from shape {damping_np.shape}")
++        dofs_per_env = int(damping_view.shape[0] // num_envs)
++        is_batched_layout = False
++
++    env_id_list = _indices_to_list(env_ids, num_envs)
++    values_np = _values_to_numpy(values, (len(env_id_list), len(joint_id_list)))
++
++    if is_batched_layout:
++        for env_i, env_id in enumerate(env_id_list):
++            for local_j, joint_id in enumerate(joint_id_list):
++                damping_view[env_id, joint_id] = values_np[env_i, local_j]
++    else:
++        for env_i, env_id in enumerate(env_id_list):
++            for local_j, joint_id in enumerate(joint_id_list):
++                damping_view[env_id * dofs_per_env + joint_id] = values_np[env_i, local_j]
++    damping.assign(damping_np)
++
++
+ class Articulation(BaseArticulation):
+     """An articulation asset class.
+ 
+@@ -3869,6 +3957,14 @@ class Articulation(BaseArticulation):
+             joint_friction_coeff=actuator.friction,
+             joint_ids=actuator.joint_indices,
+         )
++        if actuator_cfg.viscous_friction is not None:
++            _write_mujoco_passive_damping(
++                SimulationManager.get_model(),
++                actuator.viscous_friction,
++                actuator.joint_indices,
++                self.num_joints,
++            )
++            SimulationManager.add_model_change(SolverNotifyFlags.JOINT_DOF_PROPERTIES)
+ 
+         if properties_only:
+             return
+diff --git a/source/isaaclab_newton/isaaclab_newton/physics/__init__.pyi b/source/isaaclab_newton/isaaclab_newton/physics/__init__.pyi
+index 46cc26e93..f83e0ccb1 100644
+--- a/source/isaaclab_newton/isaaclab_newton/physics/__init__.pyi
++++ b/source/isaaclab_newton/isaaclab_newton/physics/__init__.pyi
+@@ -13,6 +13,7 @@ __all__ = [
+     "MPMSolverCfg",
+     "NewtonMJWarpManager",
+     "MJWarpSolverCfg",
++    "NanReplayCfg",
+     "NewtonCfg",
+     "NewtonCollisionPipelineCfg",
+     "NewtonManager",
+@@ -33,6 +34,7 @@ from .mpm_manager_cfg import MPMSolverCfg
+ from .newton_collision_cfg import HydroelasticSDFCfg, NewtonCollisionPipelineCfg
+ from .newton_manager import NewtonManager
+ from .newton_manager_cfg import (
++    NanReplayCfg,
+     NewtonCfg,
+     NewtonShapeCfg,
+     NewtonSolverCfg,
+diff --git a/source/isaaclab_newton/isaaclab_newton/physics/debug_state_buffer.py b/source/isaaclab_newton/isaaclab_newton/physics/debug_state_buffer.py
+new file mode 100644
+index 000000000..84de878dc
+--- /dev/null
++++ b/source/isaaclab_newton/isaaclab_newton/physics/debug_state_buffer.py
+@@ -0,0 +1,728 @@
++# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
++# All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++"""Debug state buffer for NaN incident replay in Newton physics."""
++
++from __future__ import annotations
++
++import logging
++import os
++from collections.abc import Callable
++from datetime import datetime
++from typing import TYPE_CHECKING
++
++import numpy as np
++import torch
++import warp as wp
++
++from .newton_manager_cfg import ReplayBufferCfg
++
++if TYPE_CHECKING:
++    from newton import Model, State
++
++logger = logging.getLogger(__name__)
++
++_MAX_BUFFER_SIZE = 2000
++
++# State attribute -> world-layout "kind" used to slice it per env.
++_STATE_KIND = {"body_q": "body", "body_qd": "body", "joint_q": "coord", "joint_qd": "dof"}
++
++# Newton ``Contacts`` fields dumped on the cold (NaN) path, as ``(attr, export_suffix)``.
++_CONTACT_DUMP_FIELDS = (
++    ("rigid_contact_normal", "normal"),
++    ("rigid_contact_point0", "point0"),
++    ("rigid_contact_point1", "point1"),
++    ("rigid_contact_margin0", "margin0"),
++    ("rigid_contact_margin1", "margin1"),
++    ("rigid_contact_thickness0", "thickness0"),
++    ("rigid_contact_thickness1", "thickness1"),
++)
++
++# Newton ``Contacts`` fields cloned in the hot path for the opt-in step-replay buffer.
++_REPLAY_CONTACT_FIELDS = (
++    "rigid_contact_count", "rigid_contact_shape0", "rigid_contact_shape1",
++    "rigid_contact_point0", "rigid_contact_point1", "rigid_contact_normal",
++    "rigid_contact_offset0", "rigid_contact_offset1", "rigid_contact_margin0",
++    "rigid_contact_margin1", "rigid_contact_thickness0", "rigid_contact_thickness1",
++    "rigid_contact_stiffness", "rigid_contact_damping", "rigid_contact_friction",
++)  # fmt: skip
++# MJWarp ``Data`` vectors cloned in the hot path for the replay buffer.
++_REPLAY_SOLVER_FIELDS = ("qacc_warmstart", "qacc_smooth", "qfrc_smooth", "qacc", "qvel", "qfrc_constraint")
++# MJWarp ``efc`` rows cloned only when full-context replay is requested.
++_REPLAY_EFC_FIELDS = ("force", "D", "aref", "vel", "pos")
++
++
++def _gather(arr, idx: torch.Tensor | None) -> np.ndarray | None:
++    """Move a Warp array to numpy, slicing rows by ``idx`` first when given."""
++    if arr is None:
++        return None
++    return wp.to_torch(arr)[idx].cpu().numpy() if idx is not None else arr.numpy()
++
++
++def _stack_states(states: list[State], attr: str, idx: torch.Tensor | None) -> np.ndarray | None:
++    """Stack one ``State`` attribute across a ring of snapshots, optionally sliced to ``idx``.
++
++    Returns ``None`` if the attribute is absent on the states.
++    """
++    out: list[np.ndarray] = []
++    for state in states:
++        arr = getattr(state, attr)
++        if arr is None:
++            return None
++        out.append(_gather(arr, idx))
++    return np.stack(out)
++
++
++class _WorldLayout:
++    """Per-world index ranges into the flat body/joint arrays.
++
++    Centralizes the three ``*_world_start`` arrays so NaN localization and per-env slicing share one
++    implementation. A *kind* selects the array: ``"body"``, ``"coord"`` (joint coordinates), or
++    ``"dof"`` (joint velocities).
++    """
++
++    _KIND_ATTR = {
++        "body": "body_world_start",
++        "coord": "joint_coord_world_start",
++        "dof": "joint_dof_world_start",
++    }
++
++    def __init__(self, model: Model) -> None:
++        self.world_count: int = int(model.world_count) if int(model.world_count) > 1 else 0
++        self._starts: dict[str, np.ndarray] = {}
++        if self.world_count:
++            for kind, attr in self._KIND_ATTR.items():
++                arr = getattr(model, attr)
++                assert arr is not None
++                self._starts[kind] = arr.numpy()
++
++    @property
++    def is_multi(self) -> bool:
++        """True when the model has more than one world."""
++        return self.world_count > 0
++
++    def index(self, kind: str, envs: list[int]) -> torch.Tensor | None:
++        """1-D index tensor covering ``envs``' ranges for ``kind``, or ``None`` if empty/unknown."""
++        starts = self._starts.get(kind)
++        if starts is None:
++            return None
++        idx: list[int] = []
++        for w in envs:
++            if w + 1 < starts.shape[0]:
++                idx.extend(range(int(starts[w]), int(starts[w + 1])))
++        return torch.tensor(idx, dtype=torch.long) if idx else None
++
++    def bad_envs(self, state: State, exclude: set[int]) -> list[int]:
++        """World-ids whose state slice contains NaN, skipping any in ``exclude``."""
++        tensors = {
++            attr: (wp.to_torch(getattr(state, attr)) if getattr(state, attr) is not None else None)
++            for attr in _STATE_KIND
++        }
++        bad: list[int] = []
++        for w in range(self.world_count):
++            if w in exclude:
++                continue
++            for attr, kind in _STATE_KIND.items():
++                t = tensors[attr]
++                starts = self._starts.get(kind)
++                if t is None or starts is None:
++                    continue
++                if torch.isnan(t[int(starts[w]) : int(starts[w + 1])]).any().item():
++                    bad.append(w)
++                    break
++        return bad
++
++
++class DebugStateBuffer:
++    """Rolling buffer of Newton state snapshots with GPU-side NaN detection.
++
++    On every step the current state is copied into a ring buffer (GPU-GPU via ``State.assign``). NaN
++    detection runs entirely on GPU using a fused ``torch.isnan`` + ``any`` -- no data leaves the device
++    on the hot path. Only when a NaN is found does the buffer dump to CPU for export.
++
++    With multiple worlds (replicated envs) the buffer identifies which env(s) contain NaN, exports only
++    those slices, and suppresses future detection of already-exported env_ids (NaN is sticky). After
++    :attr:`max_exports` exports, :attr:`nan_halt` is set and subsequent calls are no-ops; the caller
++    (Newton manager) should check ``nan_halt`` and raise to stop simulation.
++
++    Modes (all share one ring + export path):
++
++    * default -- per env-step: :meth:`capture_pre` records the pre-physics input, :meth:`step` records
++      the post-physics output and checks for NaN.
++    * per-substep (``per_substep=True``, CUDA graph must be off) -- :meth:`observe_substep` records and
++      checks every solver substep, exporting the last finite substep as the ``pre_*`` state so the NaN's
++      birthplace is captured before it propagates.
++    * step-replay (``replay_cfg.enabled``) -- :meth:`record_step_replay_pre` / :meth:`record_step_replay_post`
++      record pre/post state plus selected control/contact/solver vectors per substep.
++    """
++
++    def __init__(
++        self,
++        model: Model,
++        buffer_size: int,
++        export_path: str = ".",
++        export_envs_only: bool = True,
++        max_exports: int = 1,
++        scene_exporter: Callable[[str, list[int]], None] | None = None,
++        collision_pipeline=None,
++        per_substep: bool = False,
++        replay_cfg: ReplayBufferCfg = ReplayBufferCfg(),
++    ) -> None:
++        """Initialize the debug state buffer.
++
++        Args:
++            model: Finalized Newton model (used to allocate state clones and read world layout).
++            buffer_size: Number of state snapshots to keep. Capped at :data:`_MAX_BUFFER_SIZE`.
++            export_path: Directory for npz export.
++            export_envs_only: When True and the model has multiple worlds, export only the env(s) that
++                contain NaN.
++            max_exports: Maximum number of NaN export events before halting. Each event exports a
++                distinct set of newly-NaN env_ids.
++            scene_exporter: Optional callable ``(usd_path, env_ids) -> None`` that exports USD prim
++                subtrees for the given env_ids. Called once per export event; an empty ``env_ids``
++                means export the whole scene (single-env case).
++            collision_pipeline: Live collision pipeline (used on NaN to re-collide the pre-state).
++            per_substep: Enable per-substep deep capture (requires the CUDA graph to be off).
++            replay_cfg: Configuration for the opt-in per-substep replay buffer.
++        """
++        size = min(max(int(buffer_size), 1), _MAX_BUFFER_SIZE)
++        self._ring: list[State] = [model.state() for _ in range(size)]
++        self._size: int = size
++        self._write_idx: int = 0
++        self._layout = _WorldLayout(model)
++
++        # Pre-physics snapshot of the in-flight step plus that step's per-env episode length. Lets the
++        # export distinguish a NaN already present in the step *input* (e.g. from a reset that fired at
++        # the end of the previous env-step) from one produced by the physics step itself.
++        self._pending_pre: State = model.state()
++        self._last_episode_length = None
++
++        # Deep per-substep mode: track the last finite substep so it can be exported as the "pre".
++        self._per_substep: bool = bool(per_substep)
++        self._substep_pre: State = model.state()
++        self._substep_counter: int = 0
++        self._last_finite_substep: int = -1
++        self._substep_meta: tuple[int, int, int] | None = None
++
++        # Opt-in step-replay buffer (records pre/post transitions for offline replay).
++        self._replay_cfg = replay_cfg
++        self._replay_enabled: bool = replay_cfg.enabled
++        if replay_cfg.record_mjwarp_context:
++            from mujoco_warp._src import solver as mjw_solver
++
++            mjw_solver._SOLVE_SNAPSHOT = True  # noqa: SLF001
++        self._replay_pre: list[State] = [model.state() for _ in range(size)] if self._replay_enabled else []
++        self._replay_post: list[State] = [model.state() for _ in range(size)] if self._replay_enabled else []
++        self._replay_pre_aux: list[dict | None] = [None] * size
++        self._replay_post_aux: list[dict | None] = [None] * size
++        self._replay_meta: list[dict] = [{} for _ in range(size)]
++        self._replay_write_idx: int = 0
++        self._replay_current_idx: int | None = None
++
++        self._export_path: str = export_path
++        self._export_envs_only: bool = export_envs_only
++        self._max_exports: int = max(int(max_exports), 1)
++        self._scene_exporter = scene_exporter
++        self._export_count: int = 0
++        self._nan_halt: bool = False
++        self._exported_envs: set[int] = set()
++
++        # Optional collision pipeline + scratch contacts. On NaN we run a single collide() on the stored
++        # pre-physics state to capture the contact set that fed the failing step (cold path only).
++        self._collision_pipeline = collision_pipeline
++        self._pre_contacts = collision_pipeline.contacts() if collision_pipeline is not None else None
++
++        assert model.shape_world is not None
++        assert model.body_flags is not None
++        assert model.joint_armature is not None
++        self._shape_world: np.ndarray = model.shape_world.numpy()
++        self._body_label: list[str] = [str(x) for x in model.body_label]
++        self._shape_label: list[str] = [str(x) for x in model.shape_label]
++        self._body_flags: np.ndarray = model.body_flags.numpy()
++        self._joint_armature: np.ndarray = model.joint_armature.numpy()
++        # Live (post-step) contacts and active solver, set each step; dumped on NaN to explain *why*.
++        self._last_contacts = None
++        self._last_solver = None
++
++    # ------------------------------------------------------------------
++    # Properties
++    # ------------------------------------------------------------------
++
++    @property
++    def size(self) -> int:
++        """Number of state snapshots in the buffer."""
++        return self._size
++
++    @property
++    def nan_halt(self) -> bool:
++        """True after :attr:`max_exports` NaN exports have occurred."""
++        return self._nan_halt
++
++    @property
++    def per_substep(self) -> bool:
++        """True when running in deep per-substep capture mode (CUDA graph must be off)."""
++        return self._per_substep
++
++    # ------------------------------------------------------------------
++    # Hot path
++    # ------------------------------------------------------------------
++
++    def capture_pre(self, pre_state: State) -> None:
++        """Snapshot the pre-physics-step state of the in-flight env-step.
++
++        Call at the top of the physics step (after the previous env-step's reset/action application,
++        before the solver). Paired with :meth:`step` so the export can show the failing step's *input*.
++
++        Args:
++            pre_state: Newton state before this step's physics (GPU).
++        """
++        if self._nan_halt or not self._ring:
++            return
++        self._pending_pre.assign(pre_state)
++
++    def step(
++        self,
++        current_state: State,
++        sim_time: float,
++        episode_length=None,
++        contacts=None,
++        solver=None,
++        collision_pipeline=None,
++    ) -> None:
++        """Copy state into the ring, check for NaN, and export if found.
++
++        Everything except the final export stays on GPU. No-op when :attr:`nan_halt` is True.
++
++        Args:
++            current_state: Current Newton state (GPU), post-physics.
++            sim_time: Simulation time [s] at this step.
++            episode_length: Per-env episode length, either a tensor or a no-arg callable returning the
++                live tensor (callable is preferred -- the RL env may reallocate the buffer).
++            contacts: Live Newton ``Contacts`` (post-step) -- dumped on NaN.
++            solver: Active solver (e.g. ``SolverMuJoCo``); its ``mjw_data`` internals are dumped on NaN.
++            collision_pipeline: Live collision pipeline for the pre-state re-collide (``None`` at
++                construction, so it is refreshed here).
++        """
++        if self._nan_halt or not self._ring:
++            return
++        self._record_step_context(episode_length, contacts, solver, collision_pipeline)
++        self._ring[self._write_idx].assign(current_state)
++        self._write_idx = (self._write_idx + 1) % self._size
++        nan_detected, bad_envs = self._detect_nan(current_state)
++        if nan_detected:
++            self._export(sim_time, bad_envs)
++
++    def observe_substep(
++        self,
++        current_state: State,
++        sim_time: float,
++        episode_length=None,
++        contacts=None,
++        solver=None,
++        collision_pipeline=None,
++        substep_idx: int = 0,
++    ) -> None:
++        """Deep-mode per-substep NaN check (requires the CUDA graph to be OFF).
++
++        Records each solver substep into the ring and, on the first substep whose state contains NaN,
++        exports the **last finite substep** as the ``pre_*`` state plus the solver internals --
++        pinpointing where the NaN is born before it propagates.
++
++        Args:
++            current_state: Post-substep Newton state (GPU).
++            sim_time: Simulation time [s].
++            episode_length: Per-env episode-length tensor or no-arg callable.
++            contacts: Live Newton contacts at this substep.
++            solver: Active solver (``mjw_data`` dumped on NaN).
++            collision_pipeline: Live collision pipeline.
++            substep_idx: Index of this substep within the current physics dispatch.
++        """
++        if self._nan_halt or not self._ring:
++            return
++        self._record_step_context(episode_length, contacts, solver, collision_pipeline)
++        self._substep_counter += 1
++        self._ring[self._write_idx].assign(current_state)
++        self._write_idx = (self._write_idx + 1) % self._size
++        nan_detected, bad_envs = self._detect_nan(current_state)
++        if nan_detected:
++            # The last finite substep is the input to this failing substep -> export it as pre_*.
++            self._pending_pre.assign(self._substep_pre)
++            self._substep_meta = (int(substep_idx), int(self._last_finite_substep), int(self._substep_counter))
++            self._export(sim_time, bad_envs)
++        else:
++            self._substep_pre.assign(current_state)
++            self._last_finite_substep = int(substep_idx)
++
++    def record_step_replay_pre(
++        self,
++        pre_state: State,
++        control=None,
++        contacts=None,
++        solver=None,
++        sim_time: float = 0.0,
++        substep_idx: int = 0,
++        episode_length=None,
++    ) -> None:
++        """Record replay input for one solver substep (opt-in via :class:`ReplayBufferCfg`)."""
++        if not self._replay_enabled or self._nan_halt:
++            return
++        idx = self._replay_write_idx
++        self._replay_current_idx = idx
++        if self._replay_cfg.record_state:
++            self._replay_pre[idx].assign(pre_state)
++        self._replay_pre_aux[idx] = self._capture_replay_aux(control=control, contacts=contacts, solver=solver)
++        self._replay_post_aux[idx] = None
++        self._replay_meta[idx] = {"sim_time": float(sim_time), "substep_idx": int(substep_idx)}
++
++    def record_step_replay_post(self, post_state: State, solver=None) -> None:
++        """Record replay output for the latest solver substep."""
++        if not self._replay_enabled or self._nan_halt or self._replay_current_idx is None:
++            return
++        idx = self._replay_current_idx
++        if self._replay_cfg.record_state:
++            self._replay_post[idx].assign(post_state)
++        self._replay_post_aux[idx] = self._capture_replay_aux(solver=solver)
++        self._replay_write_idx = (idx + 1) % self._size
++        self._replay_current_idx = None
++
++    def _record_step_context(self, episode_length, contacts, solver, collision_pipeline) -> None:
++        """Stash the per-step references the cold-path export needs."""
++        self._last_episode_length = episode_length() if callable(episode_length) else episode_length
++        self._last_contacts = contacts
++        self._last_solver = solver
++        if collision_pipeline is not None:
++            self._collision_pipeline = collision_pipeline
++            if self._pre_contacts is None:
++                self._pre_contacts = collision_pipeline.contacts()
++
++    @staticmethod
++    def _clone_wp_array(arr):
++        out = wp.empty_like(arr)
++        wp.copy(out, arr)
++        return out
++
++    def _capture_replay_aux(self, control=None, contacts=None, solver=None) -> dict:
++        """Clone the configured control/contact/solver vectors for one replay record (kept on GPU)."""
++        aux: dict = {}
++        cfg = self._replay_cfg
++        if cfg.record_control and control is not None:
++            aux["control_joint_f"] = self._clone_wp_array(control.joint_f)
++        if cfg.record_contacts and contacts is not None:
++            for field in _REPLAY_CONTACT_FIELDS:
++                aux[f"contact_{field}"] = self._clone_wp_array(getattr(contacts, field))
++        if cfg.record_solver and solver is not None:
++            mjw = solver.mjw_data
++            for field in _REPLAY_SOLVER_FIELDS:
++                aux[f"mjw_{field}"] = self._clone_wp_array(getattr(mjw, field))
++            if cfg.record_mjwarp_context:
++                for field in _REPLAY_EFC_FIELDS:
++                    aux[f"mjw_efc_{field}"] = self._clone_wp_array(getattr(mjw.efc, field))
++        return aux
++
++    def _detect_nan(self, state: State) -> tuple[bool, list[int]]:
++        """GPU-side NaN check. Returns ``(has_nan, bad_env_ids)`` (env ids empty if single-world)."""
++        arrays = [
++            wp.to_torch(getattr(state, attr)).flatten() for attr in _STATE_KIND if getattr(state, attr) is not None
++        ]
++        if not arrays:
++            return False, []
++        if not torch.isnan(torch.cat(arrays)).any().item():
++            return False, []
++        if not self._layout.is_multi:
++            return True, []
++        bad = self._layout.bad_envs(state, self._exported_envs)
++        return len(bad) > 0, bad
++
++    # ------------------------------------------------------------------
++    # Export (cold path -- only on NaN)
++    # ------------------------------------------------------------------
++
++    def _export(self, sim_time: float, bad_envs: list[int]) -> None:
++        """Dump the ring buffer (and diagnostics) to npz. Only called when a NaN is detected."""
++        n = self._size
++        ordered = [self._ring[(self._write_idx + i) % n] for i in range(n)]
++        sliced_envs = bad_envs if (self._export_envs_only and bad_envs) else []
++
++        data = self._dump_states(ordered, sliced_envs)
++        if sliced_envs:
++            data["exported_env_ids"] = np.array(bad_envs, dtype=np.int32)
++        data["buffer_size"] = n
++        data["sim_time"] = sim_time
++        if self._substep_meta is not None:
++            data["per_substep_capture"] = np.int64(1)
++            data["nan_substep_idx"] = np.int64(self._substep_meta[0])
++            data["last_finite_substep_idx"] = np.int64(self._substep_meta[1])
++            data["substep_counter"] = np.int64(self._substep_meta[2])
++
++        self._add_pre_and_episode_length(data, bad_envs)
++        self._add_contacts_and_solver(data, bad_envs)
++        self._add_step_replay(data, bad_envs)
++
++        os.makedirs(self._export_path, exist_ok=True)
++        stem = f"nan_replay_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
++        npz_path = os.path.join(self._export_path, f"{stem}.npz")
++        np.savez_compressed(npz_path, **data)
++
++        if self._scene_exporter is not None:
++            usd_path = os.path.join(self._export_path, f"{stem}.usd")
++            try:
++                self._scene_exporter(usd_path, bad_envs)
++                logger.info("Exported scene for envs %s to %s", bad_envs or "all", usd_path)
++            except Exception:
++                logger.exception("Failed to export scene USD to %s", usd_path)
++
++        logger.error("NaN detected (envs %s). Exported %d snapshots to %s", bad_envs or "all", n, npz_path)
++
++        self._exported_envs.update(bad_envs)
++        self._export_count += 1
++        if self._export_count >= self._max_exports:
++            self._nan_halt = True
++            logger.error("Reached max NaN exports (%d). Halting debug state buffer.", self._max_exports)
++
++    def _dump_states(self, ordered: list[State], envs: list[int]) -> dict:
++        """Stack each state attribute across the ring, sliced to ``envs`` when nonempty."""
++        data: dict = {}
++        for attr, kind in _STATE_KIND.items():
++            idx = self._layout.index(kind, envs) if envs else None
++            stacked = _stack_states(ordered, attr, idx)
++            if stacked is not None:
++                data[attr] = stacked
++        return data
++
++    def _add_pre_and_episode_length(self, data: dict, bad_envs: list[int]) -> None:
++        """Add the pre-physics snapshot (``pre_*``), per-env episode length, and labels."""
++        envs = bad_envs if (self._export_envs_only and bad_envs and self._layout.is_multi) else []
++        pre = self._pending_pre
++        for attr, kind in _STATE_KIND.items():
++            arr = _gather(getattr(pre, attr), self._layout.index(kind, envs) if envs else None)
++            if arr is not None:
++                data[f"pre_{attr}"] = arr
++
++        el = self._last_episode_length
++        if el is not None:
++            el_t = el if isinstance(el, torch.Tensor) else wp.to_torch(el)
++            el_np = el_t.detach().cpu().numpy().reshape(-1)
++            data["episode_length"] = el_np[bad_envs] if (self._export_envs_only and bad_envs) else el_np
++
++        body_idx = self._layout.index("body", envs) if envs else None
++        data["body_label"] = np.array(
++            [self._body_label[i] for i in body_idx.tolist()] if body_idx is not None else self._body_label
++        )
++        data["shape_label"] = np.array(self._shape_label)
++
++    def _add_contacts_and_solver(self, data: dict, bad_envs: list[int]) -> None:
++        """Dump the pre-state re-collide contacts, the live contacts, and the solver internals."""
++        if self._collision_pipeline is not None and self._pre_contacts is not None:
++            try:
++                self._collision_pipeline.collide(self._pending_pre, self._pre_contacts)
++                self._dump_contacts_obj(data, self._pre_contacts, "pre_contact", bad_envs)
++                data["shape_world"] = self._shape_world
++            except Exception:
++                logger.exception("Failed to re-collide pre-state in NaN export")
++        try:
++            self._dump_contacts_obj(data, self._last_contacts, "contact", bad_envs)
++        except Exception:
++            logger.exception("Failed to dump live contacts in NaN export")
++        # Best-effort: solver internals read the mjwarp solve snapshot, which only exists when mjwarp
++        # is patched (FACTORY_SOLVE_SNAPSHOT) -- never let its absence cost the whole capture.
++        if self._last_solver is not None:
++            try:
++                self._add_solver_internals(data, bad_envs)
++            except Exception:
++                logger.exception("Failed to dump solver internals in NaN export")
++
++    def _dump_contacts_obj(self, data: dict, c, prefix: str, bad_envs: list[int]) -> None:
++        """Dump a populated Newton ``Contacts`` filtered to the NaN'd env(s) via the shape->world map."""
++        if c is None:
++            return
++        cnt = int(wp.to_torch(c.rigid_contact_count).reshape(-1)[0].item())
++        data[f"{prefix}_count_total"] = np.int64(cnt)
++        cnt = max(0, min(cnt, int(c.rigid_contact_shape0.shape[0])))
++        sh0 = wp.to_torch(c.rigid_contact_shape0)[:cnt].cpu().numpy()
++        sh1 = wp.to_torch(c.rigid_contact_shape1)[:cnt].cpu().numpy()
++        if self._export_envs_only and bad_envs:
++            sw = self._shape_world
++            n = len(sw)
++            w0 = np.where((sh0 >= 0) & (sh0 < n), sw[np.clip(sh0, 0, n - 1)], -2)
++            w1 = np.where((sh1 >= 0) & (sh1 < n), sw[np.clip(sh1, 0, n - 1)], -2)
++            sel = np.where(np.isin(w0, bad_envs) | np.isin(w1, bad_envs))[0]
++        else:
++            sel = np.arange(cnt)
++        data[f"{prefix}_count_env"] = np.int64(len(sel))
++        data[f"{prefix}_shape0"] = sh0[sel]
++        data[f"{prefix}_shape1"] = sh1[sel]
++        for field, suffix in _CONTACT_DUMP_FIELDS:
++            arr = getattr(c, field, None)  # Newton's Contacts schema varies by version; skip absent fields
++            if arr is None:
++                continue
++            data[f"{prefix}_{suffix}"] = wp.to_torch(arr)[:cnt].cpu().numpy()[sel]
++
++    def _add_solver_internals(self, data: dict, bad_envs: list[int]) -> None:
++        """Dump the MJWarp solver's internal state for the NaN'd world -- the data that explains *why*
++        the solve produced NaN, raw (derive forces/penetration downstream):
++
++        * convergence (``solver_niter``) and the mass-matrix factorization (``qLDiagInv``: 1/pivot of
++          the LDL factor of M -- a huge entry means a ~zero pivot / singular M);
++        * per-world forces/accel (``qfrc_constraint``, ``qfrc_smooth``, ``qacc``, ``qvel``);
++        * constraint rows (``efc.*``): ``force``, ``aref``, ``D`` and the sparse Jacobian (so the active
++          block's rank can be checked downstream);
++        * contacts (``contact.*``) filtered by ``worldid`` plus the geom->Newton-shape map;
++        * the GPU-side solve snapshot (the latched failing-iteration Hessian and iterate);
++        * ``mjw_nan_summary_*``: per-array NaN counts to localize the failure at a glance.
++        """
++        solver = self._last_solver
++        mjw = solver.mjw_data
++        world = int(bad_envs[0]) if bad_envs else None
++        nworld = int(mjw.nworld)
++        summary_keys: list[str] = []
++        summary_counts: list[int] = []
++
++        def _record(key, arr):
++            if np.issubdtype(arr.dtype, np.floating):
++                summary_keys.append(key)
++                summary_counts.append(int(np.isnan(arr).sum()))
++
++        def _dump_world(container, names, prefix):
++            for name in names:
++                arr = getattr(container, name).numpy()
++                key = f"{prefix}_{name}"
++                _record(key, arr)
++                if world is not None and arr.ndim >= 1 and arr.shape[0] == nworld:
++                    data[key] = arr[world]
++                elif arr.size <= 100_000:
++                    data[key] = arr
++
++        # (1) per-world scalars/vectors and the mass-matrix factorization.
++        _dump_world(mjw, [
++            "solver_niter", "ne", "nf", "nl", "nefc",
++            "qacc", "qvel", "qfrc_constraint", "qfrc_smooth", "qfrc_passive",
++            "qM", "qLDiagInv", "qfrc_actuator", "act",
++        ], "mjw")  # fmt: skip
++        # (2) constraint rows (efc): forces plus the sparse Jacobian structure for a rank check.
++        _dump_world(
++            mjw.efc,
++            ["force", "aref", "pos", "margin", "D", "vel", "Jqvel", "type",
++             "J", "J_rownnz", "J_rowadr", "J_colind"],
++            "mjw_efc",
++        )  # fmt: skip
++        # (3) contacts: flat (naconmax, ...) filtered by worldid == world.
++        contact = mjw.contact
++        if world is not None:
++            nacon = int(mjw.nacon.numpy().reshape(-1)[0])
++            csel = np.where(contact.worldid.numpy()[:nacon] == world)[0]
++            data["mjw_contact_count_env"] = np.int64(len(csel))
++            for name in ("dist", "pos", "frame", "geom", "efc_address",
++                         "includemargin", "friction", "solref", "solimp", "dim"):  # fmt: skip
++                arr = getattr(contact, name).numpy()
++                _record(f"mjw_contact_{name}", arr)
++                if arr.ndim >= 1 and len(csel):
++                    data[f"mjw_contact_{name}"] = arr[csel]
++            # Map each contact's MJWarp geom ids -> Newton shape indices (shape-identifiable downstream).
++            if len(csel):
++                row = solver.mjc_geom_to_newton_shape.numpy()
++                row = row[world] if row.ndim == 2 else row
++                g = data["mjw_contact_geom"]
++                ns = np.where((g >= 0) & (g < len(row)), row[np.clip(g, 0, len(row) - 1)], -1)
++                data["mjw_contact_newton_shape0"] = ns[:, 0]
++                data["mjw_contact_newton_shape1"] = ns[:, 1]
++
++        # (4) model-level constants: equality definitions, masses, armature, DOF/body ids.
++        mjm = solver.mjw_model
++        for name in ("eq_type", "eq_obj1id", "eq_obj2id", "eq_objtype",
++                     "body_mass", "body_inertia", "dof_bodyid", "dof_jntid", "jnt_bodyid",
++                     "dof_armature", "body_weldid", "body_invweight0", "dof_invweight0"):  # fmt: skip
++            arr = getattr(mjm, name).numpy()
++            if arr.ndim >= 1 and arr.shape[0] == nworld:
++                arr = arr[world] if world is not None else arr[0]
++            if arr.size <= 20000:
++                data[f"mjw_model_{name}"] = arr
++
++        # (5) env-0 body flags / armature and the DOF mapping arrays (kinematic-armature localization).
++        body0 = self._layout.index("body", [0])
++        if body0 is not None:
++            data["body_flags_env0"] = self._body_flags[int(body0.min()) : int(body0.max()) + 1]
++        data["joint_armature_env0"] = self._joint_armature[:64]
++        for attr, key in (
++            ("mjc_dof_to_newton_dof", "mjw_mjc_dof_to_newton_dof"),
++            ("newton_dof_to_body", "mjw_newton_dof_to_body"),
++            ("mjc_dof_to_newton_body", "mjw_mjc_dof_to_newton_body"),
++        ):
++            arr = getattr(solver, attr).numpy()
++            if arr.ndim == 2 and world is not None and world < arr.shape[0]:
++                arr = arr[world]
++            if arr.size <= 20000:
++                data[key] = arr
++        nmdl = solver.model
++        for name in ("joint_child", "joint_parent", "joint_qd_start", "joint_dof_dim", "joint_type"):
++            data[f"nmodel_{name}"] = getattr(nmdl, name).numpy()[:48]
++
++        # (6) GPU-side MJWarp solve snapshot (detection + copy happen in-kernel; export serializes it).
++        from mujoco_warp._src import solver as mjw_solver
++
++        dbg = mjw_solver._SOLVER_DEBUG_LAST  # noqa: SLF001
++        if dbg is not None:
++            for name in (
++                "debug_meta", "debug_qacc_warmstart", "debug_qacc_smooth", "debug_qacc", "debug_jaref",
++                "debug_search", "debug_mv", "debug_jv", "debug_grad", "debug_mgrad", "debug_force",
++                "debug_h", "debug_efc_state", "debug_efc_D",
++            ):  # fmt: skip
++                if hasattr(dbg, name):
++                    data[f"mjw_solve_{name}"] = getattr(dbg, name).numpy()
++
++        if summary_keys:
++            data["mjw_nan_summary_keys"] = np.array(summary_keys)
++            data["mjw_nan_summary_counts"] = np.array(summary_counts, dtype=np.int64)
++        if world is not None:
++            data["mjw_world"] = np.int64(world)
++        data["mjw_nworld"] = np.int64(nworld)
++
++    def _add_step_replay(self, data: dict, bad_envs: list[int]) -> None:
++        """Add the opt-in per-substep replay records (state + cloned aux) to the export."""
++        if not self._replay_enabled or not self._replay_pre:
++            return
++        n = self._size
++        order = [(self._replay_write_idx + i) % n for i in range(n)]
++        envs = bad_envs if (self._replay_cfg.export_envs_only and bad_envs and self._layout.is_multi) else []
++
++        if self._replay_cfg.record_state:
++            ordered_pre = [self._replay_pre[i] for i in order]
++            ordered_post = [self._replay_post[i] for i in order]
++            for attr, kind in _STATE_KIND.items():
++                idx = self._layout.index(kind, envs) if envs else None
++                pre = _stack_states(ordered_pre, attr, idx)
++                post = _stack_states(ordered_post, attr, idx)
++                if pre is not None:
++                    data[f"replay_pre_{attr}"] = pre
++                if post is not None:
++                    data[f"replay_post_{attr}"] = post
++
++        data["replay_meta_sim_time"] = np.array(
++            [self._replay_meta[i].get("sim_time", np.nan) for i in order], dtype=np.float64
++        )
++        data["replay_meta_substep_idx"] = np.array(
++            [self._replay_meta[i].get("substep_idx", -1) for i in order], dtype=np.int32
++        )
++        data["replay_buffer_size"] = np.int64(n)
++
++        aux_keys = sorted(
++            {key for aux in self._replay_pre_aux + self._replay_post_aux if aux is not None for key in aux}
++        )
++        for key in aux_keys:
++            pre_vals = [self._replay_pre_aux[i].get(key) if self._replay_pre_aux[i] else None for i in order]
++            post_vals = [self._replay_post_aux[i].get(key) if self._replay_post_aux[i] else None for i in order]
++            if all(v is not None for v in pre_vals):
++                data[f"replay_pre_{key}"] = np.stack([v.numpy() for v in pre_vals])
++            if all(v is not None for v in post_vals):
++                data[f"replay_post_{key}"] = np.stack([v.numpy() for v in post_vals])
++
++    # ------------------------------------------------------------------
++    # Teardown
++    # ------------------------------------------------------------------
++
++    def clear(self) -> None:
++        """Release the ring buffer."""
++        self._ring.clear()
++        self._write_idx = 0
++        self._size = 0
+diff --git a/source/isaaclab_newton/isaaclab_newton/physics/newton_manager.py b/source/isaaclab_newton/isaaclab_newton/physics/newton_manager.py
+index a321c67aa..157023b8f 100644
+--- a/source/isaaclab_newton/isaaclab_newton/physics/newton_manager.py
++++ b/source/isaaclab_newton/isaaclab_newton/physics/newton_manager.py
+@@ -50,6 +50,7 @@ from isaaclab.utils.timer import Timer
+ from isaaclab_newton.cloner.newton_clone_utils import replicate_builder_mapping
+ from isaaclab_newton.physics.visualization_builder import build_visualization_builder_from_stage_envs
+ 
++from .debug_state_buffer import DebugStateBuffer
+ from .newton_manager_cfg import NewtonCfg, NewtonShapeCfg
+ 
+ if TYPE_CHECKING:
+@@ -268,6 +269,11 @@ class NewtonManager(PhysicsManager):
+     _pending_extended_contact_attributes: set[str] = set()
+     _report_contacts: bool = False
+ 
++    # Debug state buffer for NaN replay (None = disabled)
++    _debug_state_buffer: DebugStateBuffer | None = None
++    # Optional per-env episode-length tensor (the RL env's ``episode_length_buf``)
++    # recorded by the NaN debug buffer; registered via :meth:`set_debug_episode_length`.
++    _debug_episode_length = None
+     # Per-world reset masks (allocated in start_simulation, consumed in step/forward).
+     _world_reset_mask: wp.array | None = None  # (num_envs,) wp.bool — for SolverKamino.reset(world_mask=...)
+     _fk_reset_mask: wp.array | None = None  # (articulation_count,) wp.bool — for eval_fk(mask=...)
+@@ -719,6 +725,12 @@ class NewtonManager(PhysicsManager):
+         # Reconcile authored state after any mutating graph warmup and before the requested physics step.
+         cls.forward()
+ 
++        # Snapshot the pre-physics state (post-reset / post-action input to this step)
++        # so the NaN export can tell a reset-induced NaN from a physics-produced one.
++        if cls._debug_state_buffer is not None:
++            with wp.ScopedDevice(PhysicsManager._device):
++                cls._debug_state_buffer.capture_pre(cls._state_0)
++
+         physics_dt = cls._solver_dt * cls._num_substeps
+         use_graph = cfg is not None and cfg.use_cuda_graph and cls._graph is not None and "cuda" in device  # type: ignore[union-attr]
+ 
+@@ -744,6 +756,26 @@ class NewtonManager(PhysicsManager):
+                     cls._simulate_physics_only()
+             PhysicsManager._sim_time += physics_dt
+ 
++        if cls._debug_state_buffer is not None:
++            # In per-substep deep mode the buffer is driven from inside the solver loop
++            # (observe_substep); the per-env-step capture is skipped to avoid double-recording.
++            if not cls._debug_state_buffer.per_substep:
++                with wp.ScopedDevice(PhysicsManager._device):
++                    cls._debug_state_buffer.step(
++                        cls._state_0,
++                        PhysicsManager._sim_time,
++                        episode_length=cls._debug_episode_length,
++                        contacts=cls._contacts,
++                        solver=cls._solver,
++                        collision_pipeline=cls._collision_pipeline,
++                    )
++            if cls._debug_state_buffer.nan_halt:
++                nr = getattr(PhysicsManager._cfg, "nan_replay", None)
++                export_dir = nr.export_path if nr is not None else "."
++                raise RuntimeError(
++                    f"NaN detected in physics state. Debug replay exported to {export_dir}. Halting simulation."
++                )
++
+         if cls._usdrt_stage is not None:
+             cls._mark_state_dirty()
+         elif cls._particle_visual_prims:
+@@ -852,13 +884,92 @@ class NewtonManager(PhysicsManager):
+         NewtonManager._pending_extended_state_attributes = set()
+         NewtonManager._pending_extended_contact_attributes = set()
+         NewtonManager._views = []
++        if cls._debug_state_buffer is not None:
++            cls._debug_state_buffer.clear()
++        NewtonManager._debug_state_buffer = None
+         cls._solver_specific_clear()
+ 
++    @staticmethod
++    def _make_scene_exporter():
++        """Build a callable that exports the NaN'd env's geometry to USD.
++
++        Kitless-Newton skips USD cloning, so the destination ``env_{i}`` prims are
++        empty transforms on the USD stage — the geometry lives at the clone-plan
++        *source* root (e.g. ``/World/envs/env_0``), referenced/payloaded from the
++        asset USDs. Exporting the destination subtree (or a plain spec copy of the
++        source) therefore yields an empty scene. Instead we resolve the clone-plan
++        source(s) for the target env, ``Flatten()`` the stage (inlining referenced
++        meshes and resolving instancing into in-file prototypes), and save the whole
++        flattened layer with the source root as default prim. The companion ``.npz``
++        carries the per-env state, so source geometry is sufficient for replay
++        regardless of which env NaN'd.
++
++        Returns ``None`` only if USD is entirely unavailable.
++        """
++        try:
++            from pxr import Usd  # noqa: F401
++        except ImportError:
++            return None
++
++        def _exporter(usd_path: str, env_ids: list[int]) -> None:
++            from pxr import Usd
++
++            stage = get_current_stage()
++            if stage is None:
++                return
++            # Resolve clone-plan source root(s) populating the target env. The
++            # geometry is identical across (homogeneous) envs, so the source
++            # suffices; per-env state comes from the .npz.
++            source_roots: list[str] = []
++            try:
++                from isaaclab.sim import SimulationContext
++
++                plan = SimulationContext.instance().get_clone_plan()
++            except Exception:
++                plan = None
++            target = int(env_ids[0]) if env_ids else 0
++            if plan is not None:
++                for idx, src in enumerate(plan.sources):
++                    populated = plan.clone_mask[idx].nonzero(as_tuple=False).flatten().tolist()
++                    root = src.rstrip("/")
++                    if target in populated and root not in source_roots:
++                        source_roots.append(root)
++            if not source_roots:
++                source_roots = ["/World/envs/env_0"]
++            # Flatten so referenced/payloaded asset meshes inline and instancing
++            # resolves to in-file prototypes (a subtree export would drop those).
++            try:
++                flat_layer = stage.Flatten()
++                flat_stage = Usd.Stage.Open(flat_layer)
++                default = flat_stage.GetPrimAtPath(source_roots[0])
++                if default.IsValid():
++                    flat_stage.SetDefaultPrim(default)
++                flat_layer.Export(usd_path)
++            except Exception as exc:  # noqa: BLE001 — cold NaN path; never mask the NaN report
++                logger.warning("NaN scene USD export failed (%s); .npz state still written", exc)
++
++        return _exporter
++
+     @classmethod
+     def set_builder(cls, builder: ModelBuilder) -> None:
+         """Set the Newton model builder."""
+         NewtonManager._builder = builder
+ 
++    @classmethod
++    def set_debug_episode_length(cls, episode_length) -> None:
++        """Register the per-env episode-length source for the NaN debug buffer to record.
++
++        Args:
++            episode_length: Either a ``(num_envs,)`` tensor or a no-arg callable
++                returning the live tensor (e.g. ``lambda: env.episode_length_buf``).
++                A callable is preferred: the RL env may reallocate
++                ``episode_length_buf``, which would stale a captured tensor ref (it
++                then read ``0``). Read each step and dumped for the NaN'd env(s), so a
++                just-reset episode can be told from a long-running one. ``None``
++                disables episode-length capture.
++        """
++        NewtonManager._debug_episode_length = episode_length
++
+     @classmethod
+     def create_builder(cls, up_axis: str | None = None, **kwargs) -> ModelBuilder:
+         """Create a :class:`ModelBuilder` configured with default settings.
+@@ -1200,6 +1311,25 @@ class NewtonManager(PhysicsManager):
+         NewtonManager._world_reset_mask = wp.zeros(cls._model.world_count, dtype=wp.bool, device=device)
+         NewtonManager._fk_reset_mask = wp.zeros(cls._model.articulation_count, dtype=wp.bool, device=device)
+ 
++        nan_replay_cfg = getattr(PhysicsManager._cfg, "nan_replay", None)
++        if nan_replay_cfg is not None:
++            NewtonManager._debug_state_buffer = DebugStateBuffer(
++                cls._model,
++                nan_replay_cfg.buffer_size,
++                export_path=nan_replay_cfg.export_path,
++                export_envs_only=nan_replay_cfg.export_envs_only,
++                max_exports=nan_replay_cfg.max_exports,
++                scene_exporter=cls._make_scene_exporter(),
++                collision_pipeline=cls._collision_pipeline,
++                per_substep=nan_replay_cfg.per_substep,
++                replay_cfg=nan_replay_cfg.replay,
++            )
++            logger.info(
++                "Debug state buffer enabled: %d snapshots%s",
++                cls._debug_state_buffer.size,
++                " (per-substep deep mode; CUDA graph must be off)" if cls._debug_state_buffer.per_substep else "",
++            )
++
+         logger.info("Dispatching PHYSICS_READY callbacks")
+         cls.dispatch_event(PhysicsEvent.PHYSICS_READY)
+ 
+@@ -1726,22 +1856,72 @@ class NewtonManager(PhysicsManager):
+         # top-of-loop collide(), not this one.
+         collide_mid_loop = collide_every > 0 and cls._needs_collision_pipeline and contacts is not None
+ 
++        # Deep per-substep NaN capture (CUDA graph must be off in this mode). Observes the
++        # state after every solver substep so the failing substep is caught before the NaN
++        # smears across the state vector.
++        dbg = cls._debug_state_buffer
++        substep_debug = dbg is not None and dbg.per_substep
++
++        def _observe(i: int) -> bool:
++            dbg.observe_substep(
++                cls._state_0,
++                PhysicsManager._sim_time,
++                episode_length=cls._debug_episode_length,
++                contacts=contacts,
++                solver=cls._solver,
++                collision_pipeline=cls._collision_pipeline,
++                substep_idx=i,
++            )
++            return dbg.nan_halt
++
+         if cls._use_single_state:
+             for i in range(cls._num_substeps):
++                if dbg is not None:
++                    dbg.record_step_replay_pre(
++                        cls._state_0,
++                        control=cls._control,
++                        contacts=contacts,
++                        solver=cls._solver,
++                        sim_time=PhysicsManager._sim_time,
++                        substep_idx=i,
++                        episode_length=cls._debug_episode_length()
++                        if callable(cls._debug_episode_length)
++                        else cls._debug_episode_length,
++                    )
+                 cls._step_solver(cls._state_0, cls._state_0, cls._control, contacts, cls._solver_dt)
+                 cls._state_0.clear_forces()
++                if dbg is not None:
++                    dbg.record_step_replay_post(cls._state_0, solver=cls._solver)
++                if substep_debug and _observe(i):
++                    return
+                 if collide_mid_loop and (i + 1) % collide_every == 0 and i + 1 < cls._num_substeps:
+                     cls._collision_pipeline.collide(cls._state_0, contacts)
+         else:
+             cfg = PhysicsManager._cfg
+             need_copy_on_last = cfg is not None and cls._num_substeps % 2 == 1
+             for i in range(cls._num_substeps):
++                if dbg is not None:
++                    dbg.record_step_replay_pre(
++                        cls._state_0,
++                        control=cls._control,
++                        contacts=contacts,
++                        solver=cls._solver,
++                        sim_time=PhysicsManager._sim_time,
++                        substep_idx=i,
++                        episode_length=cls._debug_episode_length()
++                        if callable(cls._debug_episode_length)
++                        else cls._debug_episode_length,
++                    )
+                 cls._step_solver(cls._state_0, cls._state_1, cls._control, contacts, cls._solver_dt)
+                 if need_copy_on_last and i == cls._num_substeps - 1:
+                     cls._state_0.assign(cls._state_1)
+                 else:
+                     NewtonManager._state_0, NewtonManager._state_1 = cls._state_1, cls._state_0
+                 cls._state_0.clear_forces()
++                if dbg is not None:
++                    dbg.record_step_replay_post(cls._state_0, solver=cls._solver)
++                if substep_debug and _observe(i):
++                    return
+                 if collide_mid_loop and (i + 1) % collide_every == 0 and i + 1 < cls._num_substeps:
+                     cls._collision_pipeline.collide(cls._state_0, contacts)
+ 
+diff --git a/source/isaaclab_newton/isaaclab_newton/physics/newton_manager_cfg.py b/source/isaaclab_newton/isaaclab_newton/physics/newton_manager_cfg.py
+index 019b1b0bd..1e904070d 100644
+--- a/source/isaaclab_newton/isaaclab_newton/physics/newton_manager_cfg.py
++++ b/source/isaaclab_newton/isaaclab_newton/physics/newton_manager_cfg.py
+@@ -75,6 +75,96 @@ class NewtonShapeCfg:
+     gap: float = 0.01
+     """Default per-shape contact gap [m]. Newton's upstream default is ``None``."""
+ 
++    ke: float = 2.5e3
++    """Default per-shape contact elastic stiffness [N/m].
++
++    Governs how hard a contact resists penetration; consumed by the SemiImplicit,
++    Featherstone, and MuJoCo (Newton) solver paths. Newton's upstream default is
++    ``2.5e3``. Raise it (e.g. ``1e7``) for stiff, low-penetration contacts in
++    contact-rich assembly tasks.
++    """
++
++    kd: float = 100.0
++    """Default per-shape contact damping coefficient.
++
++    Damps the normal contact response. Newton's upstream default is ``100.0``.
++    """
++
++
++@configclass
++class ReplayBufferCfg:
++    """Configuration for the opt-in one-step replay buffer."""
++
++    enabled: bool = False
++    """Whether to record replay transitions."""
++
++    export_envs_only: bool = True
++    """When True, export replay state only for the NaN envs."""
++
++    record_state: bool = True
++    """Record pre/post Newton state arrays."""
++
++    record_control: bool = True
++    """Record control inputs such as ``control.joint_f``."""
++
++    record_solver: bool = True
++    """Record selected MJWarp solver vectors."""
++
++    record_contacts: bool = False
++    """Record contact data in the hot path. Expensive; normally use cold recompute/export."""
++
++    record_mjwarp_context: bool = False
++    """Record full MJWarp solver context. Very expensive; use only for focused diagnosis."""
++
++
++@configclass
++class NanReplayCfg:
++    """Configuration for the NaN replay debug buffer.
++
++    When attached to :class:`NewtonCfg`, a rolling buffer of GPU state snapshots
++    is kept.  If a NaN is detected after a physics step the buffer is exported to
++    disk (with optional USD scene export) and simulation is halted.
++    """
++
++    buffer_size: int = 200
++    """Number of state snapshots to keep in the rolling buffer.
++
++    Capped at 2000 to bound GPU memory use.
++    """
++
++    export_path: str = "./nan_debug/"
++    """Directory for exported ``.npz`` and ``.usd`` files."""
++
++    export_envs_only: bool = True
++    """When True and simulation has multiple envs, export only the env(s)
++    that contain NaN.
++
++    This keeps the replay file small and replayable with a single-env scene.
++    When False, the full state (all envs) is exported.
++    """
++
++    max_exports: int = 5
++    """Maximum number of NaN export events before halting simulation.
++
++    Each export event covers a distinct set of newly-NaN env_ids.  After this
++    many exports the debug buffer stops recording and the physics step raises
++    ``RuntimeError``.
++    """
++
++    per_substep: bool = False
++    """When True, NaN detection runs after every solver substep (not just once per
++    env-step), capturing the exact substep where the NaN is *born* together with the
++    last finite pre-substep state and the solver internals at that substep.
++
++    This requires the CUDA graph to be disabled (host-side checks cannot run inside a
++    captured graph), so set :attr:`NewtonCfg.use_cuda_graph` to ``False`` alongside it.
++    Slower, but it isolates the failing substep before the NaN propagates across the
++    state — use for deep diagnosis, not production.
++    """
++
++    replay: ReplayBufferCfg = ReplayBufferCfg()
++    """Optional one-step replay recorder configuration."""
++
+ 
+ @configclass
+ class NewtonCfg(PhysicsCfg):
+@@ -186,6 +276,14 @@ class NewtonCfg(PhysicsCfg):
+     ``"lbvh"`` / ``"sah"`` / ``"cubql"`` trade-off.
+     """
+ 
++    nan_replay: NanReplayCfg | None = None
++    """NaN replay debug buffer configuration.
++
++    Set to a :class:`NanReplayCfg` instance to enable the rolling state buffer
++    and automatic NaN detection / export.  ``None`` (default) disables the
++    debug buffer entirely (zero overhead).
++    """
++
+     def __post_init__(self):
+         # NewtonCfg.class_type is auto-derived from solver_cfg.class_type.
+         # Refuse a user-set value: setting both is ambiguous and was
+diff --git a/source/isaaclab_newton/test/assets/test_articulation_viscous_friction.py b/source/isaaclab_newton/test/assets/test_articulation_viscous_friction.py
+new file mode 100644
+index 000000000..7cf25a6d5
+--- /dev/null
++++ b/source/isaaclab_newton/test/assets/test_articulation_viscous_friction.py
+@@ -0,0 +1,52 @@
++# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
++# All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++from types import SimpleNamespace
++
++import numpy as np
++import torch
++from isaaclab_newton.assets.articulation.articulation import _write_mujoco_passive_damping
++
++
++class _FakeDamping:
++    def __init__(self, values: object) -> None:
++        self._values = np.asarray(values, dtype=np.float32)
++        self.assigned = None
++
++    def numpy(self) -> np.ndarray:
++        return self._values.copy()
++
++    def assign(self, values: object) -> None:
++        self.assigned = np.asarray(values, dtype=np.float32)
++
++
++def test_write_mujoco_passive_damping_updates_batched_layout() -> None:
++    damping = _FakeDamping(np.zeros((2, 3), dtype=np.float32))
++    model = SimpleNamespace(mujoco=SimpleNamespace(dof_passive_damping=damping))
++    values = torch.tensor([[0.2, 0.4], [0.6, 0.8]], dtype=torch.float32)
++
++    _write_mujoco_passive_damping(model, values, [0, 2], num_dofs=3)
++
++    np.testing.assert_allclose(damping.assigned, [[0.2, 0.0, 0.4], [0.6, 0.0, 0.8]])
++
++
++def test_write_mujoco_passive_damping_updates_flat_layout() -> None:
++    damping = _FakeDamping(np.zeros(6, dtype=np.float32))
++    model = SimpleNamespace(mujoco=SimpleNamespace(dof_passive_damping=damping))
++    values = torch.tensor([[0.2, 0.4], [0.6, 0.8]], dtype=torch.float32)
++
++    _write_mujoco_passive_damping(model, values, [0, 2], num_dofs=3)
++
++    np.testing.assert_allclose(damping.assigned, [0.2, 0.0, 0.4, 0.6, 0.0, 0.8])
++
++
++def test_write_mujoco_passive_damping_updates_flat_layout_with_model_stride() -> None:
++    damping = _FakeDamping(np.zeros(10, dtype=np.float32))
++    model = SimpleNamespace(mujoco=SimpleNamespace(dof_passive_damping=damping))
++    values = torch.tensor([[0.2, 0.4], [0.6, 0.8]], dtype=torch.float32)
++
++    _write_mujoco_passive_damping(model, values, [0, 2], num_dofs=3)
++
++    np.testing.assert_allclose(damping.assigned, [0.2, 0.0, 0.4, 0.0, 0.0, 0.6, 0.0, 0.8, 0.0, 0.0])
+diff --git a/source/isaaclab_newton/test/physics/test_debug_state_buffer.py b/source/isaaclab_newton/test/physics/test_debug_state_buffer.py
+new file mode 100644
+index 000000000..6e79b6a17
+--- /dev/null
++++ b/source/isaaclab_newton/test/physics/test_debug_state_buffer.py
+@@ -0,0 +1,410 @@
++# Copyright (c) 2022-2026, The Isaac Lab Project Developers (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).
++# All rights reserved.
++#
++# SPDX-License-Identifier: BSD-3-Clause
++
++# pyright: reportPrivateUsage=none, reportArgumentType=none
++
++"""Tests for debug state buffer (NaN incident replay).
++
++Uses real warp arrays on the default device so torch interop paths are tested.
++"""
++
++from __future__ import annotations
++
++import tempfile
++import time
++from pathlib import Path
++
++import numpy as np
++import pytest
++import warp as wp
++from isaaclab_newton.physics.debug_state_buffer import DebugStateBuffer
++
++wp.init()
++
++NUM_BODIES = 4
++NUM_JOINTS = 3
++
++
++class FakeState:
++    """Minimal stand-in for newton.State backed by real warp arrays."""
++
++    def __init__(self, num_bodies: int = NUM_BODIES, num_joints: int = NUM_JOINTS, device: str = "cpu") -> None:
++        self.body_q = wp.zeros(num_bodies, dtype=wp.transformf, device=device)
++        self.body_qd = wp.zeros(num_bodies, dtype=wp.spatial_vectorf, device=device)
++        self.joint_q = wp.zeros(num_joints, dtype=wp.float32, device=device)
++        self.joint_qd = wp.zeros(num_joints, dtype=wp.float32, device=device)
++
++    def assign(self, other: FakeState) -> None:
++        wp.copy(self.body_q, other.body_q)
++        wp.copy(self.body_qd, other.body_qd)
++        wp.copy(self.joint_q, other.joint_q)
++        wp.copy(self.joint_qd, other.joint_qd)
++
++    def numpy(self):  # noqa: D102
++        raise NotImplementedError
++
++
++class FakeModel:
++    """Minimal stand-in for newton.Model."""
++
++    def __init__(
++        self,
++        num_bodies: int = NUM_BODIES,
++        num_joints: int = NUM_JOINTS,
++        world_count: int = 0,
++        device: str = "cpu",
++    ) -> None:
++        self._num_bodies = num_bodies
++        self._num_joints = num_joints
++        self._device = device
++        self.world_count = world_count
++        self.shape_world = wp.zeros(num_bodies, dtype=wp.int32, device="cpu")
++        self.body_flags = wp.zeros(num_bodies, dtype=wp.int32, device="cpu")
++        self.joint_armature = wp.zeros(num_joints, dtype=wp.float32, device="cpu")
++        self.body_label = [f"body{i}" for i in range(num_bodies)]
++        self.shape_label = [f"shape{i}" for i in range(num_bodies)]
++        if world_count > 1:
++            bodies_per_world = num_bodies // world_count
++            joints_per_world = num_joints // world_count
++            self.body_world_start = wp.array(
++                [i * bodies_per_world for i in range(world_count)] + [num_bodies],
++                dtype=wp.int32,
++                device="cpu",
++            )
++            self.joint_coord_world_start = wp.array(
++                [i * joints_per_world for i in range(world_count)] + [num_joints],
++                dtype=wp.int32,
++                device="cpu",
++            )
++            self.joint_dof_world_start = wp.array(
++                [i * joints_per_world for i in range(world_count)] + [num_joints],
++                dtype=wp.int32,
++                device="cpu",
++            )
++
++    def state(self) -> FakeState:
++        return FakeState(self._num_bodies, self._num_joints, self._device)
++
++
++def _inject_nan_body_q(state: FakeState, body_idx: int, component: int = 0) -> None:
++    """Set one element of body_q to NaN on the device."""
++    t = wp.to_torch(state.body_q)
++    t[body_idx, component] = float("nan")
++
++
++def _inject_nan_joint_qd(state: FakeState, joint_idx: int) -> None:
++    t = wp.to_torch(state.joint_qd)
++    t[joint_idx] = float("nan")
++
++
++# ------------------------------------------------------------------
++# Basic buffer tests
++# ------------------------------------------------------------------
++
++
++def test_buffer_size_clamped():
++    model = FakeModel()
++    buf = DebugStateBuffer(model, 5)
++    assert buf.size == 5
++
++    buf_big = DebugStateBuffer(model, 999999)
++    assert buf_big.size == 2000
++
++
++@pytest.mark.parametrize("size", [1, 3, 10])
++def test_size_property(size):
++    model = FakeModel()
++    buf = DebugStateBuffer(model, size)
++    assert buf.size == size
++
++
++def test_step_rolls_index():
++    model = FakeModel()
++    buf = DebugStateBuffer(model, 3)
++    state = FakeState()
++    for i in range(7):
++        buf.step(state, sim_time=float(i))
++    assert buf._write_idx == 7 % 3
++
++
++def test_no_export_on_clean_state():
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 3, export_path=tmpdir)
++        state = FakeState()
++        for i in range(5):
++            buf.step(state, sim_time=float(i) * 0.01)
++        assert len(list(Path(tmpdir).glob("nan_replay_*.npz"))) == 0
++
++
++def test_export_on_nan_body_q():
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 4, export_path=tmpdir)
++        clean = FakeState()
++        buf.step(clean, sim_time=0.0)
++        buf.step(clean, sim_time=0.01)
++
++        bad = FakeState()
++        _inject_nan_body_q(bad, 0)
++        buf.step(bad, sim_time=0.02)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 1
++        data = np.load(files[0])
++        assert data["buffer_size"] == 4
++        assert float(data["sim_time"]) == pytest.approx(0.02)
++        assert np.isnan(data["body_q"]).any()
++
++
++def test_export_on_nan_joint_qd():
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir)
++        bad = FakeState()
++        _inject_nan_joint_qd(bad, 1)
++        buf.step(bad, sim_time=1.0)
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 1
++        data = np.load(files[0])
++        assert np.isnan(data["joint_qd"]).any()
++
++
++def test_per_env_nan_detection():
++    """With 2 worlds, only the env containing NaN should be reported."""
++    model = FakeModel(num_bodies=4, num_joints=2, world_count=2)
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, export_envs_only=True)
++        assert buf._layout.world_count == 2
++
++        bad = FakeState(num_bodies=4, num_joints=2)
++        _inject_nan_body_q(bad, body_idx=2, component=0)  # env 1 (bodies 2-3)
++
++        buf.step(bad, sim_time=0.5)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 1
++        data = np.load(files[0])
++        env_ids = data["exported_env_ids"]
++        assert len(env_ids) == 1
++        assert env_ids[0] == 1
++
++
++def test_clear_resets():
++    model = FakeModel()
++    buf = DebugStateBuffer(model, 5)
++    assert buf.size == 5
++    buf.clear()
++    assert buf.size == 0
++    assert buf._ring == []
++
++
++def test_step_after_clear_is_noop():
++    """step() after clear() should not crash."""
++    model = FakeModel()
++    buf = DebugStateBuffer(model, 2)
++    buf.clear()
++    state = FakeState()
++    buf.step(state, sim_time=0.0)
++
++
++def test_export_envs_only_false_exports_all():
++    """With export_envs_only=False, full state is exported even with world layout."""
++    model = FakeModel(num_bodies=4, num_joints=2, world_count=2)
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, export_envs_only=False)
++        bad = FakeState(num_bodies=4, num_joints=2)
++        _inject_nan_body_q(bad, body_idx=3)
++        buf.step(bad, sim_time=0.1)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 1
++        data = np.load(files[0])
++        assert "exported_env_ids" not in data
++        assert data["body_q"].shape[1] == 4  # all bodies, not sliced
++
++
++# ------------------------------------------------------------------
++# Deduplication: already-NaN env_ids are suppressed
++# ------------------------------------------------------------------
++
++
++def test_same_env_nan_consecutive_steps_single_export():
++    """When the same env NaNs on consecutive steps, only one npz is produced."""
++    model = FakeModel(num_bodies=4, num_joints=2, world_count=2)
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 3, export_path=tmpdir, max_exports=10)
++        bad = FakeState(num_bodies=4, num_joints=2)
++        _inject_nan_body_q(bad, body_idx=2)  # env 1
++
++        for t in range(5):
++            buf.step(bad, sim_time=float(t) * 0.01)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 1, f"Expected 1 export, got {len(files)}"
++        assert 1 in buf._exported_envs
++
++
++def test_second_env_nan_after_first_gets_separate_export():
++    """A new env NaN'ing after the first env was already exported gets its own export."""
++    model = FakeModel(num_bodies=4, num_joints=2, world_count=2)
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, max_exports=10)
++
++        bad_env1 = FakeState(num_bodies=4, num_joints=2)
++        _inject_nan_body_q(bad_env1, body_idx=2)  # env 1
++        buf.step(bad_env1, sim_time=0.01)
++        assert len(list(Path(tmpdir).glob("nan_replay_*.npz"))) == 1
++
++        # Ensure timestamp differs
++        time.sleep(0.01)
++
++        bad_both = FakeState(num_bodies=4, num_joints=2)
++        _inject_nan_body_q(bad_both, body_idx=0)  # env 0
++        _inject_nan_body_q(bad_both, body_idx=2)  # env 1 (already exported)
++        buf.step(bad_both, sim_time=0.02)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 2, f"Expected 2 exports, got {len(files)}"
++        assert buf._exported_envs == {0, 1}
++
++
++# ------------------------------------------------------------------
++# max_exports and nan_halt
++# ------------------------------------------------------------------
++
++
++def test_nan_halt_after_max_exports_default():
++    """With default max_exports=1, nan_halt is True after first export."""
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir)
++        assert not buf.nan_halt
++
++        bad = FakeState()
++        _inject_nan_body_q(bad, 0)
++        buf.step(bad, sim_time=0.0)
++
++        assert buf.nan_halt
++        assert buf._export_count == 1
++
++
++def test_nan_halt_stops_recording():
++    """After nan_halt, step() is a no-op (no more exports)."""
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, max_exports=1)
++        bad = FakeState()
++        _inject_nan_body_q(bad, 0)
++        buf.step(bad, sim_time=0.0)
++        assert buf.nan_halt
++
++        write_idx_before = buf._write_idx
++        buf.step(bad, sim_time=0.01)
++        assert buf._write_idx == write_idx_before  # no advancement
++
++
++def test_max_exports_allows_multiple():
++    """With max_exports=3, exactly 3 exports are allowed."""
++    model = FakeModel(num_bodies=6, num_joints=3, world_count=3)
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, max_exports=3)
++
++        for env_idx in range(3):
++            time.sleep(0.01)
++            bad = FakeState(num_bodies=6, num_joints=3)
++            _inject_nan_body_q(bad, body_idx=env_idx * 2)  # each env's first body
++            buf.step(bad, sim_time=float(env_idx) * 0.01)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 3
++        assert buf.nan_halt
++        assert buf._export_count == 3
++
++
++# ------------------------------------------------------------------
++# Scene exporter
++# ------------------------------------------------------------------
++
++
++def test_scene_exporter_called_on_nan():
++    """scene_exporter callable is invoked with (usd_path, env_ids) on NaN."""
++    calls: list[tuple[str, list[int]]] = []
++
++    def mock_exporter(usd_path: str, env_ids: list[int]) -> None:
++        calls.append((usd_path, env_ids))
++
++    model = FakeModel(num_bodies=4, num_joints=2, world_count=2)
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(
++            model,
++            2,
++            export_path=tmpdir,
++            scene_exporter=mock_exporter,
++            max_exports=5,
++        )
++        bad = FakeState(num_bodies=4, num_joints=2)
++        _inject_nan_body_q(bad, body_idx=2)  # env 1
++        buf.step(bad, sim_time=0.5)
++
++        assert len(calls) == 1
++        usd_path, env_ids = calls[0]
++        assert usd_path.endswith(".usd")
++        assert env_ids == [1]
++
++
++def test_scene_exporter_not_called_without_nan():
++    """scene_exporter is not called when no NaN."""
++    calls: list = []
++
++    def mock_exporter(usd_path: str, env_ids: list[int]) -> None:
++        calls.append(1)
++
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, scene_exporter=mock_exporter)
++        clean = FakeState()
++        buf.step(clean, sim_time=0.0)
++        assert len(calls) == 0
++
++
++def test_scene_exporter_single_env_empty_ids():
++    """For single-env (no world layout), scene_exporter receives empty env_ids."""
++    calls: list[tuple[str, list[int]]] = []
++
++    def mock_exporter(usd_path: str, env_ids: list[int]) -> None:
++        calls.append((usd_path, env_ids))
++
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, scene_exporter=mock_exporter)
++        bad = FakeState()
++        _inject_nan_body_q(bad, 0)
++        buf.step(bad, sim_time=0.0)
++
++        assert len(calls) == 1
++        assert calls[0][1] == []
++
++
++def test_scene_exporter_failure_does_not_crash():
++    """If scene_exporter raises, export still completes (npz is written)."""
++
++    def broken_exporter(usd_path: str, env_ids: list[int]) -> None:
++        raise RuntimeError("USD not available")
++
++    model = FakeModel()
++    with tempfile.TemporaryDirectory() as tmpdir:
++        buf = DebugStateBuffer(model, 2, export_path=tmpdir, scene_exporter=broken_exporter)
++        bad = FakeState()
++        _inject_nan_body_q(bad, 0)
++        buf.step(bad, sim_time=0.0)
++
++        files = list(Path(tmpdir).glob("nan_replay_*.npz"))
++        assert len(files) == 1
++        assert buf.nan_halt
++
++
++if __name__ == "__main__":
++    pytest.main([__file__, "-v", "--maxfail=1"])
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/adr_curriculum.py b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/adr_curriculum.py
+index 9f7c074a7..c4a71880f 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/adr_curriculum.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/adr_curriculum.py
+@@ -108,6 +108,15 @@ class CurriculumCfg:
+         },
+     )
+ 
++    oob_adr = CurrTerm(
++        func=mdp.modify_term_cfg,
++        params={
++            "address": "terminations.object_out_of_bound.params.in_bound_range.z",
++            "modify_fn": mdp.initial_final_interpolate_fn,
++            "modify_params": {"initial_value": (0.3, 2.0), "final_value": (0.0, 2.0), "difficulty_term_str": "adr"},
++        },
++    )
++
+     gravity_adr = CurrTerm(
+         func=mdp.modify_term_cfg,
+         params={
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/dexsuite_env_cfg.py b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/dexsuite_env_cfg.py
+index dc9fee906..e5ac8b3b8 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/dexsuite_env_cfg.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/dexsuite_env_cfg.py
+@@ -7,6 +7,8 @@ from dataclasses import MISSING
+ 
+ from isaaclab_newton.physics import MJWarpSolverCfg, NewtonCfg, NewtonCollisionPipelineCfg, NewtonShapeCfg
+ from isaaclab_physx.physics import PhysxCfg
++from isaaclab_visualizers.newton import NewtonVisualizerCfg
++from isaaclab_visualizers.kit import KitVisualizerCfg
+ 
+ import isaaclab.sim as sim_utils
+ from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
+@@ -24,7 +26,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+ from isaaclab.utils.configclass import configclass
+ from isaaclab.utils.noise import UniformNoiseCfg as Unoise
+ 
+-from isaaclab_tasks.utils import PresetCfg
++from isaaclab_tasks.utils import PresetCfg, preset
+ 
+ from . import mdp
+ from .adr_curriculum import CurriculumCfg
+@@ -46,7 +48,7 @@ OBJECT_PHYSICS = {
+ 
+ @configclass
+ class ObjectCfg(PresetCfg):
+-    shapes = sim_utils.MultiAssetSpawnerCfg(
++    default = sim_utils.MultiAssetSpawnerCfg(
+         assets_cfg=[
+             MeshCuboidCfg(size=(0.05, 0.1, 0.1), **OBJECT_PHYSICS),
+             MeshCuboidCfg(size=(0.05, 0.05, 0.1), **OBJECT_PHYSICS),
+@@ -73,8 +75,9 @@ class ObjectCfg(PresetCfg):
+         collision_props=sim_utils.CollisionPropertiesCfg(),
+         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+     )
++    # Alternative preset: a single cuboid instead of the shape variety (select via a ``...=cube`` preset).
+     cube = sim_utils.CuboidCfg(
+-        size=(0.05, 0.1, 0.1),
++        size=(0.05, 0.05, 0.05),
+         physics_material=RigidBodyMaterialCfg(static_friction=0.5),
+         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+             solver_position_iteration_count=16,
+@@ -84,7 +87,6 @@ class ObjectCfg(PresetCfg):
+         collision_props=sim_utils.CollisionPropertiesCfg(),
+         mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+     )
+-    default = shapes
+ 
+ 
+ @configclass
+@@ -173,7 +175,7 @@ class ObservationsCfg:
+         def __post_init__(self):
+             self.enable_corruption = True
+             self.concatenate_terms = True
+-            self.history_length = 5
++            # self.history_length = 5
+ 
+     @configclass
+     class ProprioObsCfg(ObsGroup):
+@@ -197,7 +199,7 @@ class ObservationsCfg:
+         def __post_init__(self):
+             self.enable_corruption = True
+             self.concatenate_terms = True
+-            self.history_length = 5
++            # self.history_length = 5
+ 
+     @configclass
+     class PerceptionObsCfg(ObsGroup):
+@@ -215,7 +217,7 @@ class ObservationsCfg:
+             self.concatenate_dim = 0
+             self.concatenate_terms = True
+             self.flatten_history_dim = True
+-            self.history_length = 5
++            # self.history_length = 5
+ 
+     # observation groups
+     policy: PolicyCfg = PolicyCfg()
+@@ -345,7 +347,7 @@ class EventCfg:
+         func=mdp.reset_joints_by_offset,
+         mode="reset",
+         params={
+-            "asset_cfg": SceneEntityCfg("robot", joint_names="iiwa7_joint_7"),
++            "asset_cfg": SceneEntityCfg("robot", joint_names="wrist"),
+             "position_range": [-3, 3],
+             "velocity_range": [0.0, 0.0],
+         },
+@@ -365,14 +367,14 @@ class RewardsCfg:
+ 
+     action_rate_l2 = RewTerm(func=mdp.action_rate_l2_clamped, weight=-0.005)
+ 
+-    fingers_to_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.4}, weight=1.0)
++    fingers_to_object = RewTerm(func=mdp.object_ee_distance, params={"std": 0.4}, weight=0.25)
+ 
+     position_tracking = RewTerm(
+         func=mdp.position_command_error_tanh,
+         weight=2.0,
+         params={
+             "asset_cfg": SceneEntityCfg("robot"),
+-            "std": 0.2,
++            "std": 0.1,
+             "command_name": "object_pose",
+             "align_asset_cfg": SceneEntityCfg("object"),
+         },
+@@ -383,7 +385,7 @@ class RewardsCfg:
+         weight=4.0,
+         params={
+             "asset_cfg": SceneEntityCfg("robot"),
+-            "std": 1.5,
++            "std": 1.0,
+             "command_name": "object_pose",
+             "align_asset_cfg": SceneEntityCfg("object"),
+         },
+@@ -394,14 +396,14 @@ class RewardsCfg:
+         weight=10,
+         params={
+             "asset_cfg": SceneEntityCfg("robot"),
+-            "pos_std": 0.1,
+-            "rot_std": 0.5,
++            "pos_std": 0.05,
++            "rot_std": 0.4,
+             "command_name": "object_pose",
+             "align_asset_cfg": SceneEntityCfg("object"),
+         },
+     )
+ 
+-    early_termination = RewTerm(func=mdp.is_terminated_term, weight=-1, params={"term_keys": "abnormal_robot"})
++    early_termination = RewTerm(func=mdp.is_terminated_term, weight=-5.0, params={"term_keys": "joint_vel_out_of_limit"})
+ 
+ 
+ @configclass
+@@ -413,12 +415,12 @@ class TerminationsCfg:
+     object_out_of_bound = DoneTerm(
+         func=mdp.out_of_bound,
+         params={
+-            "in_bound_range": {"x": (-1.5, 0.5), "y": (-2.0, 2.0), "z": (0.0, 2.0)},
++            "in_bound_range": {"x": (-1.5, 0.5), "y": (-2.0, 2.0), "z": (0.3, 2.0)},
+             "asset_cfg": SceneEntityCfg("object"),
+         },
+     )
+ 
+-    abnormal_robot = DoneTerm(func=mdp.abnormal_robot_state)
++    joint_vel_out_of_limit = DoneTerm(func=mdp.joint_vel_out_of_limit)
+ 
+ 
+ @configclass
+@@ -435,7 +437,7 @@ class PhysicsCfg(PresetCfg):
+             njmax=300,
+             nconmax=200,
+             impratio=10.0,
+-            cone="elliptic",
++            cone="pyramidal",
+             update_data_interval=2,
+             iterations=100,
+             ls_iterations=15,
+@@ -444,7 +446,7 @@ class PhysicsCfg(PresetCfg):
+         ),
+         collision_cfg=NewtonCollisionPipelineCfg(),
+         default_shape_cfg=NewtonShapeCfg(),
+-        num_substeps=2,
++        num_substeps=4,
+         debug_mode=False,
+     )
+     physx = default
+@@ -455,8 +457,8 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
+     """Dexsuite reorientation task definition, also the base definition for derivative Lift task and evaluation task"""
+ 
+     # Scene settings
+-    viewer: ViewerCfg = ViewerCfg(eye=(-2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env")
+-    scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=3, replicate_physics=True)
++    viewer: ViewerCfg = ViewerCfg(eye=(-2.25, 0.0, 0.75), lookat=(0.0, 0.0, 0.45), origin_type="env", env_index=0)
++    scene: SceneCfg = SceneCfg(num_envs=4096, env_spacing=0, replicate_physics=True)
+     # Basic settings
+     observations: ObservationsCfg = ObservationsCfg()
+     actions: ActionsCfg = ActionsCfg()
+@@ -495,6 +497,26 @@ class DexsuiteReorientEnvCfg(ManagerBasedRLEnvCfg):
+         self.commands.object_pose.position_only = False
+         self.episode_length_s = 6.0
+         self.is_finite_horizon = False
++        self.sim.visualizer_cfgs = preset(  # type: ignore
++            default=[KitVisualizerCfg(
++                headless=True,
++                visible_env_indices=[0],
++                eye=(-2.25, 0.0, 0.75),
++                lookat=(0.0, 0.0, 0.45),
++            )],
++            newton_mjwarp=[NewtonVisualizerCfg(
++                headless=True,
++                eye=(-1.75, 0.0, 0.75),
++                lookat=(0.0, 0.0, 0.45),
++                visible_env_indices=[0],
++            )],
++            physx=[KitVisualizerCfg(
++                headless=True,
++                visible_env_indices=[0],
++                eye=(-2.25, 0.0, 0.75),
++                lookat=(0.0, 0.0, 0.45),
++            )]
++        )
+ 
+         # simulation settings
+         self.sim.dt = 1 / 120
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/__init__.pyi b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/__init__.pyi
+index 7d81d6ca6..f1d2d13bb 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/__init__.pyi
++++ b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/__init__.pyi
+@@ -20,6 +20,7 @@ __all__ = [
+     "orientation_command_error_tanh",
+     "position_command_error_tanh",
+     "success_reward",
++    "mechanical_power",
+     "abnormal_robot_state",
+     "out_of_bound",
+ ]
+@@ -42,6 +43,7 @@ from .rewards import (
+     orientation_command_error_tanh,
+     position_command_error_tanh,
+     success_reward,
++    mechanical_power,
+ )
+ from .terminations import abnormal_robot_state, out_of_bound
+ from isaaclab.envs.mdp import *
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/commands/pose_commands.py b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/commands/pose_commands.py
+index 499b886ae..b0165e452 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/commands/pose_commands.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/commands/pose_commands.py
+@@ -77,7 +77,8 @@ class ObjectUniformPoseCommand(CommandTerm):
+         self.pose_command_w = torch.zeros_like(self.pose_command_b)
+         # -- metrics
+         self.metrics["position_error"] = torch.zeros(self.num_envs, device=self.device)
+-        self.metrics["orientation_error"] = torch.zeros(self.num_envs, device=self.device)
++        if not self.cfg.position_only:
++            self.metrics["orientation_error"] = torch.zeros(self.num_envs, device=self.device)
+         from isaaclab.markers import VisualizationMarkers
+ 
+         self.success_visualizer = VisualizationMarkers(self.cfg.success_visualizer_cfg)
+@@ -127,10 +128,10 @@ class ObjectUniformPoseCommand(CommandTerm):
+             object_root_pose_w[:, 3:7],
+         )
+         self.metrics["position_error"] = torch.linalg.norm(pos_error, dim=-1)
+-        self.metrics["orientation_error"] = torch.linalg.norm(rot_error, dim=-1)
+ 
+         success_id = self.metrics["position_error"] < 0.05
+         if not self.cfg.position_only:
++            self.metrics["orientation_error"] = torch.linalg.norm(rot_error, dim=-1)
+             success_id &= self.metrics["orientation_error"] < 0.5
+         if self.success_vis_asset is not None:
+             self.success_visualizer.visualize(
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/rewards.py b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/rewards.py
+index 9e8b084af..5b884a00f 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/rewards.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/rewards.py
+@@ -8,6 +8,7 @@ from __future__ import annotations
+ from collections.abc import Sequence
+ from typing import TYPE_CHECKING
+ 
++import warp as wp
+ import torch
+ 
+ from isaaclab.managers import ManagerTermBase, SceneEntityCfg
+@@ -30,6 +31,17 @@ def action_l2_clamped(env: ManagerBasedRLEnv) -> torch.Tensor:
+     return torch.sum(torch.square(env.action_manager.action), dim=1).clamp(-1000, 1000)
+ 
+ 
++def mechanical_power(env: ManagerBasedRLEnv, robot_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
++    """Σ |τⱼ · q̇ⱼ| across the articulation's joints. NaN-safe.
++
++    Total instantaneous absolute mechanical power [W]. NaN/Inf outputs (rare —
++    seen briefly during reset on some backends) are clamped to 0.
++    """
++    robot = env.scene[robot_cfg.name]
++    work = torch.sum((wp.to_torch(robot.data.applied_torque) * wp.to_torch(robot.data.joint_vel)).abs(), dim=1)
++    return torch.where(torch.isfinite(work), work, torch.zeros_like(work))
++
++
+ def object_ee_distance(
+     env: ManagerBasedRLEnv,
+     std: float,
+diff --git a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/terminations.py b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/terminations.py
+index 13fd1d9d3..d2e35fe73 100644
+--- a/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/terminations.py
++++ b/source/isaaclab_tasks/isaaclab_tasks/core/dexsuite/mdp/terminations.py
+@@ -25,8 +25,9 @@ if TYPE_CHECKING:
+ class out_of_bound(ManagerTermBase):
+     """Termination condition for when the object falls out of bound.
+ 
+-    This class-based implementation caches the asset reference, ranges tensor, and env_origins
+-    to avoid recomputing them on every call.
++    The world-space bounds are cached and rebuilt per axis only when the corresponding
++    ``in_bound_range`` entry changes. This keeps the hot path free of host-to-device
++    transfers while still honoring runtime updates (e.g. from a curriculum term).
+     """
+ 
+     def __init__(self, cfg: TerminationTermCfg, env: ManagerBasedRLEnv):
+@@ -35,14 +36,11 @@ class out_of_bound(ManagerTermBase):
+         asset_cfg: SceneEntityCfg = cfg.params.get("asset_cfg", SceneEntityCfg("object"))
+         self._object: RigidObject = env.scene[asset_cfg.name]
+ 
+-        in_bound_range: dict[str, tuple[float, float]] = cfg.params.get("in_bound_range", {})
+-        range_list = [in_bound_range.get(key, (0.0, 0.0)) for key in ["x", "y", "z"]]
+-        ranges = torch.tensor(range_list, device=env.device, dtype=torch.float32)
+-
+         # Pre-apply env_origins so we can compare directly against world-space positions.
+-        origins = env.scene.env_origins  # (N, 3)
+-        self._lower = origins + ranges[:, 0]  # (N, 3)
+-        self._upper = origins + ranges[:, 1]  # (N, 3)
++        self._origins = env.scene.env_origins  # (N, 3)
++        self._lower = self._origins.clone()  # (N, 3)
++        self._upper = self._origins.clone()  # (N, 3)
++        self._cached_axis: list[tuple[float, ...] | None] = [None, None, None]
+ 
+     def __call__(
+         self,
+@@ -50,14 +48,23 @@ class out_of_bound(ManagerTermBase):
+         asset_cfg: SceneEntityCfg = SceneEntityCfg("object"),
+         in_bound_range: dict[str, tuple[float, float]] = {},
+     ) -> torch.Tensor:
++        # rebuild only the axes whose bounds changed (curriculum typically only moves one)
++        for i, key in enumerate(["x", "y", "z"]):
++            bounds = tuple(in_bound_range.get(key, (0.0, 0.0)))
++            if bounds != self._cached_axis[i]:
++                lo, hi = bounds
++                self._lower[:, i] = self._origins[:, i] + lo
++                self._upper[:, i] = self._origins[:, i] + hi
++                self._cached_axis[i] = bounds
++
+         pos_w = self._object.data.root_pos_w.torch
+         return ((pos_w < self._lower) | (pos_w > self._upper)).any(dim=1)
+ 
+ 
+-def abnormal_robot_state(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
++def abnormal_robot_state(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"), abnormal_threshold: float = 1.0) -> torch.Tensor:
+     """Terminating environment when violation of velocity limits detects, this usually indicates unstable physics caused
+     by very bad, or aggressive action"""
+     robot: Articulation = env.scene[asset_cfg.name]
+     joint_vel = robot.data.joint_vel.torch
+     joint_vel_limits = robot.data.joint_vel_limits.torch
+-    return (joint_vel.abs() > (joint_vel_limits * 2)).any(dim=1)
++    return (joint_vel.abs() > (joint_vel_limits * abnormal_threshold)).any(dim=1)
