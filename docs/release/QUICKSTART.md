@@ -14,8 +14,10 @@ not receive robot devices. See [STATUS.md](STATUS.md) for measured validation.
 Choose workflow 1 below to train for your own layout. No artifact download is
 required. Workflow 2 is an optional existing policy for the reference fixture.
 
-First startup compiles Warp kernels; the launcher retains a named Docker cache.
-Runtime source changes require `./so101 build` again.
+First startup compiles Warp kernels; the launcher retains a user-owned runtime cache.
+Runtime source changes require `./so101 build` again. See the README budget table
+for disk space, installation estimates and the roughly 20.4-hour full training
+example. Install `uv` before using `./so101 setup-hardware`.
 
 ## Workflow 1: train with your chosen configuration
 

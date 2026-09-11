@@ -32,7 +32,7 @@ Changed nominal placement and bounded pose randomization are supported. See
 ## Evidence and limits
 
 `validation_runs.json` records successful local run IDs, image identities and
-selected results. Host checks passed: 85 tests, 2 skipped, and 7 subtests. They cover
+selected results. Host checks passed: 92 tests, 2 skipped, and 7 subtests. They cover
 CLI/configuration validation, geometry
 transforms, deployment identity/hash checks, and the existing homing contracts.
 The Newton container contract suite passes 37 tests.
@@ -64,3 +64,19 @@ steps: public download/audit, cached image build, GPU probe, one-update training
 64/64 released-policy episodes, hardware setup, export, dry run and CPU parity.
 Docker/package caches were reused on the same workstation; this does not count
 as independent-machine or physical reproduction.
+
+## Onboarding fixes
+
+New container runs use the host UID/GID and a writable user cache. A one-update
+training run passed; generated files were verified host-owned, editable and
+deletable without sudo. The asset in the image is readable by non-root users.
+A source archive without Git metadata passed 4/4 evaluation episodes and records
+content hashes instead of a Git revision. Missing-image errors create no output
+directory and explain how to build the runtime.
+
+Export and deployment dry runs now require the local LeRobot calibration file.
+Tests verify missing-file rejection before export and after removal from an
+already-exported bundle; a synthetic offline fixture tests the successful path.
+No robot was connected. Older recorded dry runs predate this calibration gate.
+Sparse VBD payloads are excluded from supported downloads. Checksum lists use
+mode 0644. The README lists uv, disk space and estimated install/training time.

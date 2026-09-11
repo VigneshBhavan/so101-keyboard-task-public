@@ -51,10 +51,14 @@ check that any placement variation is within the distribution you evaluated.
 ```
 
 Use a two-letter target such as `HE` for P1A policies; Transit15 policies use six
-letters. The second command is a software dry run and does not open the robot.
+letters. Export and the dry run both check the local LeRobot calibration for the selected
+robot ID. Missing or malformed calibration is an error before any robot connection.
+The second command is a software dry run and does not open the robot.
 The bundle contains the checkpoint, its environment YAML, optional task/physics
 JSONs, nominal A-Z geometry, normalization, robot ID and a generated reset target.
 Its hashes and geometry are checked before the runner can connect to hardware.
+Calibration is checked again on each deployment, including bundles copied to
+another machine. This checks the saved calibration file, not physical alignment.
 
 To check CPU inference against saved simulator actions, record a rollout with
 `./so101 video ... --trace-policy-actions 400`, then run:

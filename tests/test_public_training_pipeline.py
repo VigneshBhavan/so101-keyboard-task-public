@@ -17,7 +17,7 @@ class TrainingPipelineTests(unittest.TestCase):
     def pipeline(self, root):
         args = argparse.Namespace(out_dir=root, num_envs=4, eval_envs=4, p1a_iterations=1,
                                   transit_iterations=1, seed=1307, minimum_success=0.9,
-                                  prepare_deployment=True)
+                                  prepare_deployment=True, robot_id='test_robot')
         pipeline = Pipeline(args)
         pipeline.monitor = Mock()
         return pipeline

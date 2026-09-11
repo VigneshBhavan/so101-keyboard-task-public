@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import glob
+import json
 import os
+from pathlib import Path
 import time
 from typing import Any
 
@@ -17,6 +19,36 @@ ROBOT_PORT_PATTERNS = (
     "/dev/ttyACM*",
     "/dev/ttyUSB*",
 )
+
+
+def calibration_directory() -> Path:
+    """Use the installed LeRobot calibration location without constructing a robot."""
+    from lerobot.utils.constants import HF_LEROBOT_CALIBRATION, ROBOTS
+    return HF_LEROBOT_CALIBRATION / ROBOTS / 'so_follower'
+
+
+def require_calibration(robot_id: str) -> Path:
+    """Offline preflight only: never opens a serial device or enables torque."""
+    if not robot_id.strip() or robot_id in ('.', '..') or '/' in robot_id or '\\' in robot_id:
+        raise ValueError('robot_id must be a nonempty calibration filename, not a path')
+    directory = calibration_directory()
+    path = directory / f'{robot_id}.json'
+    if not path.is_file():
+        available = ', '.join(sorted(p.stem for p in directory.glob('*.json'))) or 'none'
+        raise FileNotFoundError(
+            f'No LeRobot calibration file found for id {robot_id!r} at {path}. '
+            f'Available calibration IDs: {available}. Run lerobot-calibrate '
+            f'--robot.type=so101_follower --robot.port=YOUR_PORT --robot.id={robot_id} first.')
+    try:
+        data = json.loads(path.read_text())
+        from lerobot.motors import MotorCalibration
+        if not isinstance(data, dict) or not set((*ARM_JOINT_NAMES, 'gripper')).issubset(data):
+            raise ValueError('expected calibration for all five arm motors and gripper')
+        for values in data.values():
+            MotorCalibration(**values)
+    except (ValueError, TypeError) as error:
+        raise ValueError(f'Invalid LeRobot calibration file {path}: {error}') from error
+    return path
 
 
 def load_lerobot():

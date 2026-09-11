@@ -100,13 +100,11 @@ artifacts=(
   'checkpoints/public-transit15-seed1307/model_549.pt|ea6c940f8a57797acaaca845bfb4b7cf2f1780f3d9571536b20998cbf114e0a8'
   'checkpoints/public-transit15-seed1307/params/agent.yaml|7cc34a174d3f8ace38b1287b87e8a7137b99d151cec1eaadb293ac634434b25f'
   'checkpoints/public-transit15-seed1307/params/env.yaml|4942a720f3c2cc43aae6d66973c260aeec56a6e9891d5bb8b57febdf65e772bd'
-  'checkpoints/sparse-vbd-anchorbench-20k/model_19999.pt|d35c146f2bffcbb5f2dc91c8da560365e6ef64586e1e42f832932b9098a55487'
   'configs/evaluation/placement-1mm.json|5090b4de25ad592309e31757a0a168c34bf93ee2baf922690f21a1d2a109860e'
   'configs/evaluation/placement-3mm.json|b39ab06dc6a69f24b07e155d82ce5194d26f652fe28631139666f2068483974a'
   'configs/evaluation/placement-zero.json|a0ab687ed2bf7cfb8d98a0b517d8b9db1f5a312132be20c84b72426e2ce54c2b'
   'configs/mjwarp-anchorbench-19k.env.yaml|d4766dacb28a4ffc0fc75efe8e5abed162e656b338b110e8d498cc808e31ef8b'
   'configs/mjwarp-usd-19k.env.yaml|d14d60d19554326d66cbffc175c42166232968380980574ae36c196c9a0f7acb'
-  'configs/sparse-vbd-anchorbench-20k.env.yaml|55215c907ce8b12c7b762c8eab2903790420cbbecd84a29bf88536df0da8ab2a'
   'evaluation/fresh-checkout-software-validation.json|b01f2a04b542dda099153c66b35a0a40e179475e92f4b948a54639d65aeba5d3'
   'evaluation/mjwarp-anchorbench-19k.corpus_100x6_seed1307.json|0598e2f235bcd3e2279c08a9c6e75934b47e84b58553b21dfd0e0089b57ac66a'
   'evaluation/mjwarp-usd-19k.corpus_100x6_seed1307.json|9db2f161f5bebac4b5a4dd5c9457d13fe0eeadf8eb3e2e01b42d8358a3ef0305'
@@ -123,7 +121,6 @@ artifacts=(
   'evaluation/public-transit15-seed3307.json|e9a14707925073c3d37222505e9141ed1f954e709cf786ff1ab45d2cd1470644'
   'evaluation/public-transit15-video-NVIDIA.json|d83135a8ecffee5627a80ff4d51df1e74bffec04730fcd467e530b52c82dce73'
   'evaluation/run-provenance.json|d340ed3c0dadca6e4f21f1efcce8cca9d93b4274551485c3cf22f2777dc72da2'
-  'evaluation/sparse-vbd-anchorbench-20k.corpus_100x6_seed1307.json|cdee2f512067a5d6bbcd31537c6aa45f59cf97e8f9d98ad0d4e4e748c3eb23ca'
   'evaluation/three_way_mjwarp19k_vbd20k_usd19k_orange2.summary.json|bb474e559394be754fed0d677712c4d2995416f2c5fae3d1a77e2ba4e413f274'
   'manifest.json|8e1af2d99690d5576fa7d1483dc6ff9981dde4feaa7a8b4007efaf9a85fef3c0'
   'training/p1a-iterations.csv|fb666d504182e00e2709fbb22d357e33948961e6f50ec7ce663783f5838d9e9a'
@@ -148,6 +145,7 @@ for specification in "${artifacts[@]}"; do
   download_and_verify "$relative_path" "$expected_sha256"
   printf '%s  %s\n' "$expected_sha256" "$relative_path" >> "$selected_checksums"
 done
+chmod 644 "$selected_checksums"
 mv "$selected_checksums" "$output_dir/DOWNLOAD_SHA256SUMS"
 
 printf '%s\n' "$output_dir"

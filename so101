@@ -108,8 +108,12 @@ def main():
     task = 'Isaac-Keyboard-SO101-MX-Physical-Calibrated-20260718-FixedCartesian-' + PROFILES[args.actuator] + '-' + STAGES[args.stage]
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
     output = args.output_dir.expanduser().resolve() if args.output_dir else ROOT / 'output' / 'public' / (stamp + '-' + args.command)
-    cmd = ['docker', 'run', '--rm', '--gpus', 'all', '--ipc=host', '-e', 'OMNICLIENT_HUB_MODE=disabled',
-           '--mount', 'type=volume,src=so101-typing-warp-cache,dst=/root/.cache/warp',
+    cache = (Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'so101-typing').expanduser().resolve()
+    cmd = ['docker', 'run', '--rm', '--gpus', 'all', '--ipc=host',
+           '--user', f'{os.getuid()}:{os.getgid()}', '-e', 'HOME=/tmp/so101-home',
+           '-e', 'USER=so101', '-e', 'LOGNAME=so101',
+           '-e', 'OMNICLIENT_HUB_MODE=disabled',
+           '--mount', f'type=bind,src={cache},dst=/tmp/so101-home',
            '--mount', f'type=bind,src={output},dst=/results',
            '--mount', f'type=bind,src={output},dst=/workspace/isaaclab/logs']
     for kind in ('physics', 'task'):
@@ -193,15 +197,28 @@ def main():
     print(shlex.join(cmd), flush=True)
     if args.plan:
         return 0
-    image_source = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{index .Config.Labels \"org.so101.source-sha256\"}}'], text=True).strip()
+    try:
+        image_source = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{index .Config.Labels \"org.so101.source-sha256\"}}'], text=True, stderr=subprocess.PIPE).strip()
+        image_id = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'], text=True, stderr=subprocess.PIPE).strip()
+    except (OSError, subprocess.CalledProcessError):
+        parser.error(f'cannot inspect runtime image {args.image!r}; ensure Docker is running and accessible, then run ./so101 build')
     if image_source != source_fingerprint():
         parser.error('runtime image does not match this source checkout; run ./so101 build')
-    output.mkdir(parents=True, exist_ok=False)
-    image_id = subprocess.check_output(['docker', 'image', 'inspect', args.image, '--format', '{{.Id}}'], text=True).strip()
-    revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip()
+    revision = None
+    if (ROOT / '.git').exists():
+        try:
+            revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, stderr=subprocess.PIPE).strip()
+        except (OSError, subprocess.CalledProcessError):
+            parser.error('cannot read Git revision; restore this checkout or use a fresh source archive')
+    try:
+        cache.mkdir(parents=True, exist_ok=True)
+        output.mkdir(parents=True, exist_ok=False)
+    except OSError as error:
+        parser.error(f'cannot create run output/cache: {error}')
     manifest = {'command': cmd, 'requested': vars(args), 'artifacts': artifacts,
                 'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                 'image_id': image_id, 'runtime_source_sha256': image_source, 'launcher_revision': revision,
+                'source_distribution': 'git' if revision else 'archive',
                 'launcher_sha256': hashlib.sha256((ROOT / 'so101').read_bytes()).hexdigest(),
                 'note': 'Requested settings only; training params/env.yaml records resolved configuration.'}
     (output / 'request.json').write_text(json.dumps(manifest, default=str, indent=2) + '\n')

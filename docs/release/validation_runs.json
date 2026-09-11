@@ -272,7 +272,7 @@
   ],
   "host_checks": {
     "command": "python3 -m pytest -q tests scripts/so101_homing/test",
-    "passed": 85,
+    "passed": 92,
     "skipped": 2,
     "subtests_passed": 7
   },
@@ -491,5 +491,44 @@
       "passed": 37
     },
     "hardware_commands_sent": 0
+  },
+  "onboarding_regressions": {
+    "training_as_host_user": {
+      "training_exit_code": 0,
+      "all_run_entries_owned_by_host_uid_gid": true,
+      "checkpoint_edit_delete_without_sudo": true,
+      "entry_count": 13,
+      "timing": {
+        "exit_code": 0,
+        "finished_at": "2026-09-11T18:22:58.099399+00:00",
+        "wall_seconds": 90.91157976700924
+      }
+    },
+    "source_archive": {
+      "episodes": 4,
+      "successes": 4,
+      "git_revision": null,
+      "source_distribution": "archive",
+      "runtime_source_sha256": "464459b1b385960cb41c2c5efe89a8ffbdf82eb66c3ccb81174b32469ace0358"
+    },
+    "missing_runtime_image": "readable setup error; no output directory created",
+    "calibration_preflight": {
+      "fixture": "synthetic offline test only",
+      "missing_calibration_export_rejected": true,
+      "existing_calibration_export_and_dry_run_passed": true,
+      "removed_calibration_dry_run_rejected": true,
+      "hardware_connected": false
+    },
+    "supported_downloads": {
+      "sparse_vbd_payloads": false,
+      "workshop_payloads": false,
+      "checksum_mode": "0644",
+      "hash_verification_passed": true
+    },
+    "non_root_video": {
+      "successes": 1,
+      "episodes": 1,
+      "video_host_owned": true
+    }
   }
 }

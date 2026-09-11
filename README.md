@@ -11,9 +11,22 @@ in the [Anchor-Lab media collection](https://huggingface.co/datasets/nvidia/Anch
 ## Install
 
 Requirements: Linux x86-64, an NVIDIA GPU, Docker with NVIDIA Container Toolkit,
-and host Python 3. The pinned container supplies Isaac Lab, Newton and RSL-RL.
+and host Python 3. Hardware setup additionally requires `uv`; install it before
+`./so101 setup-hardware` ([uv installation](https://docs.astral.sh/uv/getting-started/installation/)).
+The pinned container supplies Isaac Lab, Newton and RSL-RL.
 The tested GPU is an RTX 5090 with 32 GB; other GPUs and minimum requirements
 remain to be qualified. No private checkout or cluster account is required.
+
+| Budget | Planning guidance |
+| --- | --- |
+| Disk | Built image: about 32.6 GB (30.4 GiB). Budget at least 70 GB free for image/build layers, caches and runs; this is headroom guidance, not a measured peak. |
+| First install | Download/build and first kernel compilation depend on bandwidth, CPU and cache state; allow tens of minutes to hours. This is an estimate, not a measured cold-install time. |
+| Optional ~19k playback | No training required; evaluation follows installation and kernel startup. |
+| Example 4,000 + 16,000 updates, 4096 environments | Roughly 20.4 hours of training-loop time on an RTX 5090, extrapolated from 36.72 s / 10 updates. Excludes startup and evaluation; not a measured full run. |
+
+See [training budgets](docs/release/TRAINING.md) for early evaluation and timing logs.
+ZIP/tarball source downloads are supported: run commands from the extracted folder;
+provenance records content hashes with no Git revision when `.git` is absent.
 
 ```bash
 git clone https://github.com/VigneshBhavan/so101-keyboard-task-public.git
@@ -110,7 +123,8 @@ For workflow 2, supply the downloaded `model_19000.pt` and
 `configs/mjwarp-anchorbench-19k.env.yaml` paths above. For workflow 1, supply your
 own selected checkpoint and its `params/env.yaml`.
 
-The last command is a software dry run. Match the physical fixture to the saved
+Export and the dry run both check that a readable LeRobot calibration file exists
+for your robot ID, without connecting to hardware. The last command is a software dry run. Match the physical fixture to the saved
 simulation geometry and check model/encoder alignment before enabling motion.
 [The hardware guide](docs/release/HARDWARE_PREPARATION.md) provides the explicit
 operator-run execution command. `benchmark` encoder offsets are only for

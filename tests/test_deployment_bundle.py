@@ -11,6 +11,39 @@ from scripts.so101_homing.deployment_bundle import profile_from_environment, sha
 
 
 class DeploymentBundleTests(unittest.TestCase):
+    def test_missing_calibration_stops_export_before_writing_bundle(self):
+        from scripts.so101_homing import deployment_bundle
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / 'bundle'
+            with patch.object(deployment_bundle, 'require_calibration', side_effect=FileNotFoundError('calibrate first')), \
+                 patch.object(deployment_bundle, 'FixedCartesianPolicy') as policy:
+                with self.assertRaises(FileNotFoundError):
+                    deployment_bundle.prepare(Path('unused'), Path('unused'), 'robot', 'lerobot', out)
+                policy.assert_not_called()
+            self.assertFalse(out.exists())
+
+    def test_missing_calibration_stops_dry_run_before_runner(self):
+        from scripts.so101_homing import deploy_bundle
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'deployment.json').write_text(json.dumps({'robot_id': 'missing'}))
+            with patch('sys.argv', ['deploy_bundle', directory, 'NVIDIA']), \
+                 patch.object(deploy_bundle, 'require_calibration', side_effect=FileNotFoundError('calibrate first')), \
+                 patch.object(deploy_bundle.subprocess, 'call') as run, self.assertRaises(SystemExit) as error:
+                deploy_bundle.main()
+            self.assertEqual(error.exception.code, 2)
+            run.assert_not_called()
+
+    def test_calibration_lookup_lists_available_ids_without_hardware(self):
+        from scripts.so101_homing import robot
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'another_robot.json').write_text('{}')
+            with patch.object(robot, 'calibration_directory', return_value=root), \
+                 patch.object(robot, 'load_lerobot') as hardware:
+                with self.assertRaisesRegex(FileNotFoundError, 'another_robot.*lerobot-calibrate'):
+                    robot.require_calibration('missing')
+                hardware.assert_not_called()
+
     def environment(self):
         return {'sim':{'dt':.01},'decimation':4, 'keyboard_profile':'mx_keys_powered_az_20260718',
                 'task_contract':'test_task','target_reference_sha256':'map','target_manifest_sha256':'source',

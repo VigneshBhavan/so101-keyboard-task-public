@@ -16,6 +16,7 @@ RUN ./isaaclab.sh -p -m pip install --no-cache-dir \
     warp-lang==1.15.0.dev20260626 newton-usd-schemas==0.3.1
 ADD https://huggingface.co/datasets/nvidia/Anchor-Lab/resolve/main/robot_assets/so101_no_camera_new_calib.usd /opt/so101/assets/so101.usd
 RUN echo 'c6c82840925ace388b0ff0acb7d8538c2b419d92fbe01dc70fe833b974d6d462  /opt/so101/assets/so101.usd' | sha256sum -c -
+RUN chmod 644 /opt/so101/assets/so101.usd
 ENV SO101_ROBOT_USD=/opt/so101/assets/so101.usd
 COPY source/ /workspace/isaaclab/source/
 COPY scripts/ /workspace/isaaclab/scripts/

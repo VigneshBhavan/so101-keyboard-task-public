@@ -15,7 +15,7 @@ profiles, task DR, changed nominal pose, custom solver settings and custom actua
 parameters. The 64-environment, 10-update AnchorBench quickstart and DR run also
 pass, as does a short P1A-to-Transit15 resume. These runs test the pipeline, not
 policy performance. First startup
-compiles Warp kernels; the named Docker cache volume reuses them on later runs.
+compiles Warp kernels; the user-owned runtime cache reuses them on later runs.
 
 ## Train for your configured keyboard pose
 
@@ -82,7 +82,7 @@ inside a persistent terminal such as tmux for a long experiment:
 ./so101 build
 ./so101 setup-hardware
 python3 scripts/run_public_training_pipeline.py \
-  --out-dir output/reference-training-seed1307 --prepare-deployment
+  --out-dir output/reference-training-seed1307
 ```
 
 Defaults are 4096 environments, 4000 P1A updates, then 16000 additional Transit15
@@ -91,10 +91,9 @@ default promotion threshold is 90% strict success, an engineering gate rather
 than a claim of hardware readiness. A failed gate saves its report and video,
 stops before Transit15, and marks `status.json` for inspection.
 
-Transit15 is evaluated on 1024 episodes each with seeds 2307 and 3307. The optional
-deployment step exports a bundle for the placeholder ID `public_pipeline_validation`
-and runs software validation only. Re-export for the operator's real calibration
-ID before physical use. Recorded videos still need visual review; scalar gates
+Transit15 is evaluated on 1024 episodes each with seeds 2307 and 3307. For the optional deployment step, first calibrate your robot, then add
+`--prepare-deployment --robot-id YOUR_CALIBRATED_ID`. Export and dry-run preflight
+require that calibration file; this step never executes hardware motion. Recorded videos still need visual review; scalar gates
 do not certify contact quality or sim-to-real transfer.
 
 The output directory must be new. `status.json` records current stage and terminal
@@ -106,3 +105,25 @@ output directory instead of the default timestamped location.
 For custom task/physics JSONs, use the explicit train/resume commands above; the
 supervisor currently exposes the reference configuration only. Short-run results
 are retained in [development validation](RESULTS.md), not as recommended policies.
+
+## Disk, time and ownership
+
+The measured image size is approximately 32.6 GB (30.4 GiB). Plan for at least
+70 GB free across Docker storage and your workspace for layers, caches and runs;
+actual peak storage depends on build cache and checkpoint retention.
+First download/build and kernel compilation may take tens of minutes to hours,
+depending on connection, CPU and caches; a cold-install wall time is not measured.
+
+At the measured 36.72 seconds per 10 updates with 4096 environments, 4000 updates
+extrapolate to 4.08 hours and another 16000 to 16.32 hours: about 20.4 hours total
+on the RTX 5090 before startup/evaluation. This is a planning estimate, not a
+completed 20,000-update timing. Evaluate early rather than assuming that budget
+is necessary. Requests and exit metadata record timestamps and wall seconds;
+RSL-RL console output reports training-loop time separately.
+
+Containers run with your host UID/GID, so new checkpoints and run directories
+can be edited or deleted without sudo. The writable container home/cache is
+stored under `XDG_CACHE_HOME/so101-typing` (default: `~/.cache/so101-typing`).
+The older root-owned Docker cache volume is no longer used. Existing root-owned
+runs from older versions are not automatically changed; their owner must repair
+permissions or remove them once.

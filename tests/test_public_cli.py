@@ -1,11 +1,15 @@
 """Host-only contract checks: never start Docker or connect to hardware."""
 import importlib.machinery
 import importlib.util
+import contextlib
+import io
+import json
+import os
 from pathlib import Path
 import sys
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 loader = importlib.machinery.SourceFileLoader('public_cli', str(ROOT / 'so101'))
@@ -15,6 +19,42 @@ loader.exec_module(cli)
 
 
 class PublicCliTests(unittest.TestCase):
+    def test_container_uses_host_identity_and_writable_home(self):
+        command = self.plan('train', '--plan')
+        self.assertIn(f'--user {os.getuid()}:{os.getgid()}', command)
+        self.assertIn('HOME=/tmp/so101-home', command)
+        self.assertNotIn('dst=/root/', command)
+
+    def test_missing_image_has_setup_error_and_creates_no_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / 'run'
+            stderr = io.StringIO()
+            with patch.object(sys, 'argv', ['so101', 'probe', '--output-dir', str(out)]), \
+                 patch.object(cli.subprocess, 'check_output', side_effect=cli.subprocess.CalledProcessError(1, 'docker')), \
+                 contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+                cli.main()
+            self.assertEqual(error.exception.code, 2)
+            self.assertIn('run ./so101 build', stderr.getvalue())
+            self.assertFalse(out.exists())
+
+    def test_source_archive_runs_without_git_and_records_hashes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'so101').write_text('archive launcher')
+            out = root / 'run'
+            process = Mock(stdout=[], wait=Mock(return_value=0))
+            with patch.object(cli, 'ROOT', root), patch.object(cli, 'source_fingerprint', return_value='fingerprint'), \
+                 patch.dict(os.environ, {'XDG_CACHE_HOME': str(root / 'cache')}), \
+                 patch.object(sys, 'argv', ['so101', 'probe', '--output-dir', str(out)]), \
+                 patch.object(cli.subprocess, 'check_output', side_effect=['fingerprint', 'image-id']) as metadata, \
+                 patch.object(cli.subprocess, 'Popen', return_value=process):
+                self.assertEqual(cli.main(), 0)
+            saved = json.loads((out / 'request.json').read_text())
+            self.assertIsNone(saved['launcher_revision'])
+            self.assertEqual(saved['source_distribution'], 'archive')
+            self.assertEqual(saved['runtime_source_sha256'], 'fingerprint')
+            self.assertTrue(all(call.args[0][0] == 'docker' for call in metadata.call_args_list))
+
     def test_download_archive_requires_explicit_option(self):
         for extra in ([], ['--all']):
             with patch.object(sys, 'argv', ['so101', 'download', *extra]), \

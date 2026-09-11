@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from .robot import require_calibration
 
 
 def main():
@@ -19,6 +20,10 @@ def main():
         p.error('--execute requires your --port and --keyboard-device explicitly')
     bundle=a.bundle.resolve()
     data=json.loads((bundle/'deployment.json').read_text())
+    try:
+        require_calibration(data['robot_id'])
+    except (OSError, ValueError) as error:
+        p.error(str(error))
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
     command=[sys.executable,'-m','scripts.so101_homing.run_fixed_cartesian_policy_handoff',
              '--deployment-config',str(bundle/'deployment.json'),'--checkpoint',str(bundle/'checkpoint.pt'),

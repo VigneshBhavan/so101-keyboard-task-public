@@ -143,7 +143,7 @@ class Pipeline:
             if self.args.prepare_deployment:
                 bundle = self.root / 'deployment'
                 self.run('07-prepare-deployment', ['prepare-deployment', '--checkpoint', transit[0],
-                    '--env-config', transit[1], '--robot-id', 'public_pipeline_validation',
+                    '--env-config', transit[1], '--robot-id', self.args.robot_id,
                     '--encoder-convention', 'lerobot', '--out-dir', bundle], simulation=False)
                 self.run('08-deployment-dry-run', ['deploy', bundle, 'NVIDIA'], simulation=False)
             self.status['status'] = 'software_quality_gates_passed' if all(gates) else 'transit15_quality_gate_failed'
@@ -183,7 +183,10 @@ def main():
     parser.add_argument('--seed', type=int, default=1307)
     parser.add_argument('--minimum-success', type=float, default=0.90)
     parser.add_argument('--prepare-deployment', action='store_true', help='Requires ./so101 setup-hardware; performs dry run only')
+    parser.add_argument('--robot-id', help='Your calibrated robot ID; required with --prepare-deployment')
     args = parser.parse_args()
+    if args.prepare_deployment and not args.robot_id:
+        parser.error('--prepare-deployment requires --robot-id for your calibrated robot')
     if not 0 < args.minimum_success <= 1:
         parser.error('--minimum-success must be in (0, 1]')
     return Pipeline(args).execute()

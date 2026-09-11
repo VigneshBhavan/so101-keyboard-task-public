@@ -10,6 +10,7 @@ import shutil
 
 import yaml
 from .constants import ARM_JOINT_NAMES
+from .robot import require_calibration
 from .fixed_cartesian_policy import (PHYSICAL_CALIBRATED_20260718_PROFILE, JOINT_RATE_LIMITS_RAD_S,
                                      FixedCartesianPolicy)
 
@@ -80,6 +81,7 @@ def validate_manifest(path, checkpoint, env_config, robot_id):
 def prepare(checkpoint, env_config, robot_id, encoder_convention, out_dir):
     if not robot_id.strip():
         raise ValueError('robot_id must be nonempty and match the LeRobot calibration ID')
+    require_calibration(robot_id)
     profile, env, stage = profile_from_environment(env_config, encoder_convention)
     policy = FixedCartesianPolicy(checkpoint)  # Validate supported checkpoint schema on CPU.
     out_dir.mkdir(parents=True, exist_ok=False)
@@ -111,7 +113,10 @@ def main():
     parser.add_argument('--encoder-convention',choices=('lerobot','benchmark'),required=True)
     parser.add_argument('--out-dir',type=Path,required=True)
     args=parser.parse_args()
-    prepare(args.checkpoint,args.env_config,args.robot_id,args.encoder_convention,args.out_dir)
+    try:
+        prepare(args.checkpoint,args.env_config,args.robot_id,args.encoder_convention,args.out_dir)
+    except (OSError, ValueError) as error:
+        parser.error(str(error))
     print(args.out_dir.resolve())
 
 
