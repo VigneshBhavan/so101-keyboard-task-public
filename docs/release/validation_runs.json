@@ -530,5 +530,158 @@
       "episodes": 1,
       "video_host_owned": true
     }
+  },
+  "pre_release_audit_20260911": {
+    "scope": "Local software release review; cached dependencies and same RTX 5090; no hardware connected.",
+    "host_tests": {
+      "passed": 97,
+      "skipped": 2,
+      "subtests_passed": 7
+    },
+    "container_contract_tests": {
+      "passed": 37
+    },
+    "gpu": "NVIDIA GeForce RTX 5090",
+    "driver": "580.126.09",
+    "artifact_revision": "922066f262db18eda5e7ddbe27e0e206c1d5a7a6",
+    "fresh_download_payloads_verified": 40,
+    "fresh_download_modes": "0644",
+    "broken_local_markdown_links": 0,
+    "reachable_history_blobs_scanned_before_audit_commit": 243,
+    "hygiene_findings": 0,
+    "all_audit_outputs_host_owned": true,
+    "reference_evaluation": {
+      "run": "output/release-audit-20260911/reference-evaluate",
+      "strict_successes": 64,
+      "episodes": 64,
+      "wrong_keys": 0
+    },
+    "reference_video": {
+      "run": "output/release-audit-20260911/reference-video",
+      "target": "NVIDIA",
+      "strict_success": true
+    },
+    "cpu_actor_parity": {
+      "kind": "simulation_to_cpu_actor_parity",
+      "checkpoint_sha256": "239d93c99cd282e9add019f4ac952407c97fde2879821103a2aa7bd7a307a15f",
+      "report_sha256": "e3083dc0da7fa97d08363c487f812364a9384ddc0a501d7cfa751363e3764b22",
+      "samples": 227,
+      "maximum_absolute_action_error": 1.1920928955078125e-06,
+      "tolerance": 1e-05,
+      "passed": true,
+      "hardware_connected": false
+    },
+    "source_archive": {
+      "run": "output/release-audit-20260911/archive-evaluate",
+      "strict_successes": 4,
+      "episodes": 4,
+      "git_revision": null,
+      "image_id": "sha256:b812c554ca1e2e85ff97af10074b345c35403c27507f575d998a94098769a60d",
+      "runtime_source_sha256": "97f3fd66f99bcd069ffe89c6122fab59ce9464b973511252dcddf42a5ca04cc4",
+      "hygiene_check_passed": true
+    },
+    "execution_smokes": [
+      {
+        "name": "custom-probe",
+        "exit_code": 0,
+        "wall_seconds": 15.8,
+        "image_id": "sha256:fe79c0e538e66dd95d3ed051e3d8163afdea229734182c049555275c26189693",
+        "runtime_source_sha256": "7f65ee53a329480fcf5a9f18cafa48f7554bcbabff48632942cf407a5d527bd8",
+        "run": "output/release-audit-20260911/custom-probe"
+      },
+      {
+        "name": "custom-train",
+        "exit_code": 0,
+        "wall_seconds": 17.15,
+        "image_id": "sha256:fe79c0e538e66dd95d3ed051e3d8163afdea229734182c049555275c26189693",
+        "runtime_source_sha256": "7f65ee53a329480fcf5a9f18cafa48f7554bcbabff48632942cf407a5d527bd8",
+        "run": "output/release-audit-20260911/custom-train"
+      },
+      {
+        "name": "custom-resume",
+        "exit_code": 0,
+        "wall_seconds": 17.21,
+        "image_id": "sha256:fe79c0e538e66dd95d3ed051e3d8163afdea229734182c049555275c26189693",
+        "runtime_source_sha256": "7f65ee53a329480fcf5a9f18cafa48f7554bcbabff48632942cf407a5d527bd8",
+        "run": "output/release-audit-20260911/custom-resume"
+      },
+      {
+        "name": "custom-evaluate",
+        "exit_code": 0,
+        "wall_seconds": 16.26,
+        "image_id": "sha256:fe79c0e538e66dd95d3ed051e3d8163afdea229734182c049555275c26189693",
+        "runtime_source_sha256": "7f65ee53a329480fcf5a9f18cafa48f7554bcbabff48632942cf407a5d527bd8",
+        "run": "output/release-audit-20260911/custom-evaluate"
+      },
+      {
+        "name": "usd-train",
+        "exit_code": 0,
+        "wall_seconds": 16.02,
+        "image_id": "sha256:fe79c0e538e66dd95d3ed051e3d8163afdea229734182c049555275c26189693",
+        "runtime_source_sha256": "7f65ee53a329480fcf5a9f18cafa48f7554bcbabff48632942cf407a5d527bd8",
+        "run": "output/release-audit-20260911/usd-train"
+      },
+      {
+        "name": "reference-video",
+        "exit_code": 0,
+        "wall_seconds": 24.45,
+        "image_id": "sha256:fe79c0e538e66dd95d3ed051e3d8163afdea229734182c049555275c26189693",
+        "runtime_source_sha256": "7f65ee53a329480fcf5a9f18cafa48f7554bcbabff48632942cf407a5d527bd8",
+        "run": "output/release-audit-20260911/reference-video"
+      }
+    ],
+    "startup_policy_evaluation": {
+      "episodes": 4,
+      "strict_successes": 0,
+      "note": "Only one P1A update plus one continuation update; checks restoration and execution, not learning."
+    },
+    "deployment_checks": {
+      "synthetic_offline_calibration": true,
+      "hardware_connected": false,
+      "checks": [
+        {
+          "name": "missing-calibration-export",
+          "exit_code": 2,
+          "expected_exit_code": 2
+        },
+        {
+          "name": "reference-export",
+          "exit_code": 0,
+          "expected_exit_code": 0
+        },
+        {
+          "name": "reference-dry-run",
+          "exit_code": 0,
+          "expected_exit_code": 0
+        },
+        {
+          "name": "invalid-target",
+          "exit_code": 1,
+          "expected_exit_code": 1
+        },
+        {
+          "name": "custom-export",
+          "exit_code": 0,
+          "expected_exit_code": 0
+        },
+        {
+          "name": "custom-dry-run",
+          "exit_code": 0,
+          "expected_exit_code": 0
+        },
+        {
+          "name": "removed-calibration-dry-run",
+          "exit_code": 2,
+          "expected_exit_code": 2
+        }
+      ]
+    },
+    "limits": [
+      "Independent machine and GPU coverage pending",
+      "Interactive X11 viewer pending",
+      "Physical alignment and typing on another SO-101 pending",
+      "Existing contact qualification limits unchanged"
+    ],
+    "evidence_location_note": "Run paths identify local ignored audit outputs; this ledger publishes the measured summary."
   }
 }

@@ -29,7 +29,7 @@ def calibration_directory() -> Path:
 
 def require_calibration(robot_id: str) -> Path:
     """Offline preflight only: never opens a serial device or enables torque."""
-    if not robot_id.strip() or robot_id in ('.', '..') or '/' in robot_id or '\\' in robot_id:
+    if not isinstance(robot_id, str) or not robot_id.strip() or robot_id in ('.', '..') or '/' in robot_id or '\\' in robot_id:
         raise ValueError('robot_id must be a nonempty calibration filename, not a path')
     directory = calibration_directory()
     path = directory / f'{robot_id}.json'
@@ -49,8 +49,12 @@ def require_calibration(robot_id: str) -> Path:
             'expected calibration for all five arm motors and gripper')
     from lerobot.motors import MotorCalibration
     try:
-        for values in data.values():
-            MotorCalibration(**values)
+        for motor, values in data.items():
+            calibration = MotorCalibration(**values)
+            if any(type(value) is not int for value in vars(calibration).values()):
+                raise ValueError(f'{motor}: calibration fields must be integers')
+            if calibration.range_min >= calibration.range_max:
+                raise ValueError(f'{motor}: range_min must be less than range_max')
     except (ValueError, TypeError) as error:
         raise ValueError(f'Invalid LeRobot calibration file {path}: {error}') from error
     return path

@@ -14,7 +14,7 @@ RUN ./isaaclab.sh -p -m pip install --no-cache-dir \
     'newton[sim] @ git+https://github.com/ooctipus/newton.git@5205aa49fb900e124f06122bf7e82ed7686a1fde' \
     && ./isaaclab.sh -p -m pip install --no-cache-dir --extra-index-url https://pypi.nvidia.com \
     warp-lang==1.15.0.dev20260626 newton-usd-schemas==0.3.1
-ADD https://huggingface.co/datasets/nvidia/Anchor-Lab/resolve/main/robot_assets/so101_no_camera_new_calib.usd /opt/so101/assets/so101.usd
+ADD https://huggingface.co/datasets/nvidia/Anchor-Lab/resolve/647edd5787cd764cdc041103ad282dc59214d919/robot_assets/so101_no_camera_new_calib.usd /opt/so101/assets/so101.usd
 RUN echo 'c6c82840925ace388b0ff0acb7d8538c2b419d92fbe01dc70fe833b974d6d462  /opt/so101/assets/so101.usd' | sha256sum -c -
 RUN chmod 644 /opt/so101/assets/so101.usd
 ENV SO101_ROBOT_USD=/opt/so101/assets/so101.usd

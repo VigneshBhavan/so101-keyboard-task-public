@@ -19,6 +19,19 @@ loader.exec_module(cli)
 
 
 class PublicCliTests(unittest.TestCase):
+    def test_archive_hygiene_scan_checks_source_without_parent_git_or_outputs(self):
+        from scripts import check_public_release
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / 'README.md').write_text('source')
+            (root / 'output').mkdir()
+            (root / 'output' / 'run.log').write_text('local run')
+            with patch.object(check_public_release, 'ROOT', root), \
+                 patch.object(check_public_release.subprocess, 'check_output') as git:
+                files = check_public_release.source_files()
+            git.assert_not_called()
+            self.assertEqual([name for _, name in files], ['README.md'])
+
     def test_container_uses_host_identity_and_writable_home(self):
         command = self.plan('train', '--plan')
         self.assertIn(f'--user {os.getuid()}:{os.getgid()}', command)

@@ -6,9 +6,20 @@ import unittest
 from unittest.mock import Mock, patch
 
 from scripts.run_public_training_pipeline import Pipeline, passes_gate
+from scripts import run_public_training_pipeline as supervisor
 
 
 class TrainingPipelineTests(unittest.TestCase):
+    def test_source_archive_does_not_require_git(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with patch.object(supervisor, 'ROOT', root), \
+                 patch.object(supervisor.subprocess, 'check_output') as git:
+                pipeline = self.pipeline(root / 'run')
+            git.assert_not_called()
+            self.assertIsNone(pipeline.status['source_commit'])
+            self.assertEqual(pipeline.status['source_distribution'], 'archive')
+
     def test_gate_uses_strict_success_and_rejects_nonfinite_scores(self):
         self.assertFalse(passes_gate({'typed_exact_rate': 1.0, 'overall_success_rate': 0.2}, 0.9))
         self.assertFalse(passes_gate({'overall_success_rate': float('nan')}, 0.9))
@@ -48,6 +59,17 @@ class TrainingPipelineTests(unittest.TestCase):
             self.assertEqual(run.call_count, 2)
             self.assertEqual(run.call_args.args[1][0], 'deploy')
             self.assertNotIn('--execute', run.call_args.args[1])
+
+    def test_failed_six_letter_gate_prevents_export(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pipeline = self.pipeline(Path(directory) / 'run')
+            with patch.object(pipeline, 'train', return_value=('checkpoint', 'config')), \
+                 patch.object(pipeline, 'evaluate', side_effect=[True, True, False]), \
+                 patch.object(pipeline, 'video') as video, patch.object(pipeline, 'run') as run:
+                self.assertEqual(pipeline.execute(), 2)
+            self.assertEqual(video.call_count, 2)
+            run.assert_not_called()
+            self.assertEqual(pipeline.status['status'], 'transit15_quality_gate_failed')
 
 
 if __name__ == '__main__':

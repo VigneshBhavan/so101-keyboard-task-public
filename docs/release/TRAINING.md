@@ -10,7 +10,7 @@ P1A trains two-letter sequences. Transit15 trains six-letter sequences with the
 ./so101 train --actuator anchorbench --num-envs 64 --iterations 10 --seed 1307
 ```
 
-One-iteration runs with four environments have been tested for all three actuator
+One-iteration runs with four environments have been tested for both public actuator
 profiles, task DR, changed nominal pose, custom solver settings and custom actuator
 parameters. The 64-environment, 10-update AnchorBench quickstart and DR run also
 pass, as does a short P1A-to-Transit15 resume. These runs test the pipeline, not
@@ -80,7 +80,6 @@ inside a persistent terminal such as tmux for a long experiment:
 
 ```bash
 ./so101 build
-./so101 setup-hardware
 python3 scripts/run_public_training_pipeline.py \
   --out-dir output/reference-training-seed1307
 ```
@@ -91,7 +90,9 @@ default promotion threshold is 90% strict success, an engineering gate rather
 than a claim of hardware readiness. A failed gate saves its report and video,
 stops before Transit15, and marks `status.json` for inspection.
 
-Transit15 is evaluated on 1024 episodes each with seeds 2307 and 3307. For the optional deployment step, first calibrate your robot, then add
+Transit15 is evaluated on 1024 episodes each with seeds 2307 and 3307. Export is
+skipped if either evaluation fails the quality gate. For the optional deployment
+step, run `./so101 setup-hardware` and calibrate your robot, then add
 `--prepare-deployment --robot-id YOUR_CALIBRATED_ID`. Export and dry-run preflight
 require that calibration file; this step never executes hardware motion. Recorded videos still need visual review; scalar gates
 do not certify contact quality or sim-to-real transfer.

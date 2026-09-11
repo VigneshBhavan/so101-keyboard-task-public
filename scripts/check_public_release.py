@@ -2,6 +2,7 @@
 """Reject infrastructure-specific files, machine paths and credential material."""
 from pathlib import Path
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -16,12 +17,26 @@ PATTERNS = {
 }
 
 
+def source_files():
+    if (ROOT / '.git').exists():
+        names = subprocess.check_output(['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0')
+        return [(ROOT / name, name) for name in names if name]
+    # Source archives must not accidentally query a parent checkout or scan run outputs.
+    ignored = {'.git', '.artifacts', 'output', 'logs', '.venv-hardware', '__pycache__', '.pytest_cache'}
+    files = []
+    for directory, subdirectories, names in os.walk(ROOT):
+        subdirectories[:] = [name for name in subdirectories if name not in ignored]
+        for name in names:
+            path = Path(directory) / name
+            files.append((path, str(path.relative_to(ROOT))))
+    return files
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--artifact-dir', type=Path, help='also scan public bundle metadata and checkpoint pickle strings')
     args = parser.parse_args()
-    files = [(ROOT / name, name) for name in subprocess.check_output(
-        ['git', 'ls-files', '-z'], cwd=ROOT).decode().split('\0') if name]
+    files = source_files()
     if args.artifact_dir:
         if not args.artifact_dir.is_dir():
             parser.error('artifact directory does not exist')

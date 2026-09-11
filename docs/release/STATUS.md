@@ -32,7 +32,7 @@ Changed nominal placement and bounded pose randomization are supported. See
 ## Evidence and limits
 
 `validation_runs.json` records successful local run IDs, image identities and
-selected results. Host checks passed: 92 tests, 2 skipped, and 7 subtests. They cover
+selected results. Host checks passed: 97 tests, 2 skipped, and 7 subtests. They cover
 CLI/configuration validation, geometry
 transforms, deployment identity/hash checks, and the existing homing contracts.
 The Newton container contract suite passes 37 tests.
@@ -80,3 +80,32 @@ already-exported bundle; a synthetic offline fixture tests the successful path.
 No robot was connected. Older recorded dry runs predate this calibration gate.
 Sparse VBD payloads are excluded from supported downloads. Checksum lists use
 mode 0644. The README lists uv, disk space and estimated install/training time.
+
+## Pre-release review — 2026-09-11
+
+Both documented software workflows passed a fresh local execution review:
+custom task/physics probe, one-update training, six-letter resume, evaluation,
+USD training, and reference-checkpoint playback. The established AnchorBench
+checkpoint passed 64/64 strict episodes and a recorded NVIDIA sequence. Its CPU
+actor matched 227 simulation actions within 1.20e-6. The startup checkpoint's
+0/4 successes are retained in the ledger; the tiny training budget only checks
+execution and configuration restoration.
+
+All 40 supported download payloads passed pinned checksums with mode 0644.
+Source/artifact hygiene checks passed, including 243 reachable historical blobs
+before this review commit. Local Markdown links resolved. A source archive with
+no Git metadata passed its hygiene check and 4/4 reference-policy episodes.
+Hardware dependencies imported successfully and passed their compatibility check.
+Seven export/deployment checks used an isolated synthetic calibration, including
+missing/removed calibration and invalid-target rejection; no hardware connected.
+
+Review fixes cover source-archive supervisor/audit support, readable malformed
+bundle errors, numeric calibration-field checks, and skipping export when a
+six-letter quality gate fails. The robot USD now uses an immutable dataset
+revision as well as its existing hash. The Hugging Face guide matches the two
+public actuator choices and disables the inapplicable tabular dataset viewer.
+Historical hardware-tool documentation directs new users to the public workflow.
+
+The checks reused this workstation and caches. Independent-machine/GPU coverage,
+interactive X11 playback and physical reproduction remain unqualified. Existing
+contact-model limitations are unchanged; this review adds software evidence.

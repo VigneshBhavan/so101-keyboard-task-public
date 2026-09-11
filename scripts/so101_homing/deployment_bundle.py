@@ -115,7 +115,7 @@ def main():
     args=parser.parse_args()
     try:
         prepare(args.checkpoint,args.env_config,args.robot_id,args.encoder_convention,args.out_dir)
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
         parser.error(str(error))
     print(args.out_dir.resolve())
 

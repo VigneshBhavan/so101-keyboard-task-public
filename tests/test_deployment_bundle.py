@@ -3,6 +3,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+import contextlib
+import io
+import sys
+import types
+from dataclasses import make_dataclass
 from unittest.mock import patch
 import yaml
 from scripts.so101_homing.constants import ARM_JOINT_NAMES
@@ -27,11 +32,49 @@ class DeploymentBundleTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / 'deployment.json').write_text(json.dumps({'robot_id': 'missing'}))
             with patch('sys.argv', ['deploy_bundle', directory, 'NVIDIA']), \
+                 patch.object(deploy_bundle, 'validate_manifest', return_value=(None, {'robot_id': 'missing', 'actuator_profile': 'anchorbench'})), \
                  patch.object(deploy_bundle, 'require_calibration', side_effect=FileNotFoundError('calibrate first')), \
                  patch.object(deploy_bundle.subprocess, 'call') as run, self.assertRaises(SystemExit) as error:
                 deploy_bundle.main()
             self.assertEqual(error.exception.code, 2)
             run.assert_not_called()
+
+    def test_malformed_bundle_is_rejected_without_runner_or_traceback(self):
+        from scripts.so101_homing import deploy_bundle
+        with tempfile.TemporaryDirectory() as directory:
+            manifest = Path(directory) / 'deployment.json'
+            for contents in (None, '{broken', '[]', '{}'):
+                if contents is not None:
+                    manifest.write_text(contents)
+                stderr = io.StringIO()
+                with patch('sys.argv', ['deploy_bundle', directory, 'NVIDIA']), \
+                     patch.object(deploy_bundle.subprocess, 'call') as run, \
+                     contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as error:
+                    deploy_bundle.main()
+                self.assertEqual(error.exception.code, 2)
+                self.assertNotIn('Traceback', stderr.getvalue())
+                run.assert_not_called()
+
+    def test_calibration_checks_numeric_fields_and_ranges_offline(self):
+        from scripts.so101_homing import robot
+        motors = types.ModuleType('lerobot.motors')
+        motors.MotorCalibration = make_dataclass('MotorCalibration',
+            [('id', int), ('drive_mode', int), ('homing_offset', int), ('range_min', int), ('range_max', int)])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / 'robot.json'
+            valid = {name: dict(id=i+1, drive_mode=0, homing_offset=0, range_min=0, range_max=4095)
+                     for i, name in enumerate((*ARM_JOINT_NAMES, 'gripper'))}
+            with patch.object(robot, 'calibration_directory', return_value=root), \
+                 patch.dict(sys.modules, {'lerobot.motors': motors}):
+                path.write_text(json.dumps(valid))
+                self.assertEqual(robot.require_calibration('robot'), path)
+                for field, value in [('homing_offset', '0'), ('id', True), ('range_max', 0)]:
+                    data = json.loads(json.dumps(valid))
+                    data['shoulder_pan'][field] = value
+                    path.write_text(json.dumps(data))
+                    with self.assertRaisesRegex(ValueError, 'shoulder_pan'):
+                        robot.require_calibration('robot')
 
     def test_calibration_lookup_lists_available_ids_without_hardware(self):
         from scripts.so101_homing import robot

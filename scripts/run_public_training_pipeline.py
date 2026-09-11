@@ -51,10 +51,15 @@ class Pipeline:
     def __init__(self, args):
         self.args = args
         self.root = args.out_dir.expanduser().resolve()
+        revision = None
+        if (ROOT / '.git').exists():
+            revision = subprocess.check_output(
+                ['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True, stderr=subprocess.PIPE).strip()
         self.root.mkdir(parents=True, exist_ok=False)
         self.status = {
             'schema_version': 1, 'started_at': now(), 'status': 'starting',
-            'source_commit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=ROOT, text=True).strip(),
+            'source_commit': revision,
+            'source_distribution': 'git' if revision else 'archive',
             'supervisor_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             'configuration': {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
             'hardware_motion_enabled': False, 'stages': [],
@@ -140,7 +145,7 @@ class Pipeline:
             gates = [self.evaluate(f'05-transit15-evaluate-seed-{seed}', 'transit15', transit, seed)
                      for seed in (self.args.seed + 1000, self.args.seed + 2000)]
             self.video('06-transit15-video', 'transit15', transit, 'NVIDIA')
-            if self.args.prepare_deployment:
+            if self.args.prepare_deployment and all(gates):
                 bundle = self.root / 'deployment'
                 self.run('07-prepare-deployment', ['prepare-deployment', '--checkpoint', transit[0],
                     '--env-config', transit[1], '--robot-id', self.args.robot_id,
@@ -189,7 +194,10 @@ def main():
         parser.error('--prepare-deployment requires --robot-id for your calibrated robot')
     if not 0 < args.minimum_success <= 1:
         parser.error('--minimum-success must be in (0, 1]')
-    return Pipeline(args).execute()
+    try:
+        return Pipeline(args).execute()
+    except (OSError, subprocess.CalledProcessError, RuntimeError) as error:
+        parser.error(str(error))
 
 
 if __name__ == '__main__':

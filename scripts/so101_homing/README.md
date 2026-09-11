@@ -1,78 +1,26 @@
-# SO-101 Physical Keyboard Deployment
+# SO-101 deployment tools
 
-The production hardware path is the dated `physical-calibrated-20260718`
-fixed-Cartesian policy family. It uses a frozen powered A-Z map and starts from
-the exact simulator reset. It does **not** use manual F/Y/N registration,
-runtime IK, or per-key correction.
+For new users, follow [hardware preparation](../../docs/release/HARDWARE_PREPARATION.md)
+and use `./so101 prepare-deployment` followed by `./so101 deploy`. Both training
+for your own placement and the optional reference checkpoint use that workflow.
+You calibrate your own robot with LeRobot; export generates the matching reset
+pose from the saved training geometry and your chosen encoder convention.
 
-The complete contract is documented in
-`docs/source/policy_deployment/06_so101_keyboard/physical_typing_contract.rst`.
-The matched AnchorBench, Workshop-baseline, and USD-drive procedure is in
-`docs/source/policy_deployment/06_so101_keyboard/physical_typing_benchmark.rst`.
+The shared runner validates the checkpoint, environment, target length, geometry,
+reset pose and timing contract before connecting. The public deployment command
+also checks the local calibration file on every dry run and execution. Hardware
+motion requires the explicit `--execute` option and operator confirmation.
 
-## Required Artifacts
+## Historical benchmark tools
 
-Every deployment requires three explicit, immutable inputs:
+The dated `run_physical_calibrated_20260718_irl.sh` launcher and `typing_ab_*`
+tools reproduce the original fixed-fixture benchmark. They assume that robot's
+separately fitted encoder convention and are retained for interpreting historical
+results. The older launcher enables hardware mode unless `SO101_POLICY_DRY_RUN=1`
+is set; use the public dry-run-by-default interface for new deployments.
 
-1. the RSL-RL `model_N.pt` checkpoint;
-2. that checkpoint's archived `params/env.yaml`; and
-3. the machine-local LeRobot encoder rest-pose JSON matching the fixed reset.
+- [Historical deployment contract](../../docs/source/policy_deployment/06_so101_keyboard/physical_typing_contract.rst)
+- [Historical matched benchmark](../../docs/source/policy_deployment/06_so101_keyboard/physical_typing_benchmark.rst)
 
-The runner rejects the wrong keyboard calibration, task contract, actuator
-profile, target length, A-Z map hashes, clearance contract, or rest pose before
-opening the robot. It converts joints in both directions at the hardware
-boundary and uses measured wall time for joint velocity.
-
-## Validate Without Robot Motion
-
-Use absolute artifact paths. `SO101_POLICY_DRY_RUN=1` loads and validates the
-entire software contract but never connects to the robot:
-
-```bash
-SO101_POLICY_DRY_RUN=1 \
-SO101_LEROBOT_PYTHON=/path/to/lerobot/bin/python \
-./scripts/so101_homing/run_physical_calibrated_20260718_irl.sh \
-  p1d-transit15 NVIDIA \
-  /absolute/path/to/model_19999.pt \
-  /absolute/path/to/params/env.yaml \
-  /absolute/path/to/rest_pose.json
-```
-
-Valid recipe names are `p0`, `p1a`, `p1b`, `p1c`, `p1d`,
-`p1d-transit15`, `baseline-p1d-transit15`, and
-`usd-drive-p1d-transit15`.
-
-## Run On Hardware
-
-Remove `SO101_POLICY_DRY_RUN=1` and set stable hardware paths when automatic
-device discovery is not unambiguous:
-
-```bash
-SO101_LEROBOT_PYTHON=/path/to/lerobot/bin/python \
-SO101_KEYBOARD_DEVICE=/dev/input/by-id/<keyboard-event-device> \
-SO101_ROBOT_PORT=/dev/serial/by-id/<robot-controller> \
-SO101_ROBOT_ID=my_follower \
-./scripts/so101_homing/run_physical_calibrated_20260718_irl.sh \
-  p1d-transit15 NVIDIA \
-  /absolute/path/to/model_19999.pt \
-  /absolute/path/to/params/env.yaml \
-  /absolute/path/to/rest_pose.json
-```
-
-The operator confirmation remains mandatory. The runner retries the measured
-fixed-reset gate up to three times, starts PPO only after both encoder and
-model-coordinate errors pass, stops on a wrong or overlapping key, and returns
-to rest before releasing evdev.
-
-## Safety And Fixture Validity
-
-- Keep the keyboard, 4.44 mm mat, robot base, and fixed typing jaw unchanged.
-- Keep the moving jaw closed; the fixed jaw is the typing contact.
-- Stop power if the initial reset path is obstructed or unexpected.
-- Moving any fixture component invalidates the frozen map. Recalibrate and
-  create a new dated task contract before training or deployment.
-- Do not add action holds, slew caps, rate scaling, manual F/Y/N replay, or
-  wrapper-side geometry to a scored rollout.
-
-Manual F/Y/N homing and pre-calibration policy adapters are intentionally absent
-from this branch. Their history remains available in archival Git branches.
+Workshop and Sparse VBD references in those historical tools are outside the
+public training interface, which exposes only AnchorBench and USD with MJWarp.

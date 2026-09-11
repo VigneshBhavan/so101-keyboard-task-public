@@ -11,7 +11,8 @@ in the [Anchor-Lab media collection](https://huggingface.co/datasets/nvidia/Anch
 ## Install
 
 Requirements: Linux x86-64, an NVIDIA GPU, Docker with NVIDIA Container Toolkit,
-and host Python 3. Hardware setup additionally requires `uv`; install it before
+host Python 3, and `curl` or `wget` for artifact downloads. Hardware setup
+additionally requires `uv`; install it before
 `./so101 setup-hardware` ([uv installation](https://docs.astral.sh/uv/getting-started/installation/)).
 The pinned container supplies Isaac Lab, Newton and RSL-RL.
 The tested GPU is an RTX 5090 with 32 GB; other GPUs and minimum requirements

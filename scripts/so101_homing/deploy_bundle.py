@@ -5,7 +5,9 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import yaml
 from .robot import require_calibration
+from .deployment_bundle import validate_manifest
 
 
 def main():
@@ -19,10 +21,16 @@ def main():
     if a.execute and (not a.port or not a.keyboard_device):
         p.error('--execute requires your --port and --keyboard-device explicitly')
     bundle=a.bundle.resolve()
-    data=json.loads((bundle/'deployment.json').read_text())
     try:
+        data=json.loads((bundle/'deployment.json').read_text())
+        if not isinstance(data, dict):
+            raise ValueError('deployment.json must be a mapping')
+        _, data = validate_manifest(bundle/'deployment.json', bundle/'checkpoint.pt',
+                                    bundle/'env.yaml', data['robot_id'])
+        if not isinstance(data.get('actuator_profile'), str):
+            raise ValueError('deployment.json requires an actuator_profile')
         require_calibration(data['robot_id'])
-    except (OSError, ValueError) as error:
+    except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
         p.error(str(error))
     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S.%fZ')
     command=[sys.executable,'-m','scripts.so101_homing.run_fixed_cartesian_policy_handoff',

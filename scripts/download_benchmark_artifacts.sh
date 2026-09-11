@@ -33,7 +33,7 @@ fi
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_dir="${1:-${SO101_ARTIFACT_DIR:-$repo_root/.artifacts/so101-keyboard-typing-benchmark}}"
 output_dir="$(mkdir -p "$output_dir" && realpath "$output_dir")"
-base_url="${SO101_HF_BASE_URL:-https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark/resolve/f4aa3be2add9c233ec04d969f7eeb7b80be6115a}"
+base_url="${SO101_HF_BASE_URL:-https://huggingface.co/datasets/VigneshBhavan/so101-keyboard-typing-benchmark/resolve/922066f262db18eda5e7ddbe27e0e206c1d5a7a6}"
 
 command -v sha256sum >/dev/null || { echo "ERROR: sha256sum is required" >&2; exit 1; }
 if command -v curl >/dev/null; then
@@ -83,6 +83,7 @@ download_and_verify() {
     rm -f "$temporary"
     die "checksum mismatch for $relative_path: expected $expected_sha256, got $actual_sha256"
   fi
+  chmod 644 "$temporary"
   mv "$temporary" "$destination"
   printf '[OK] %s\n' "$relative_path" >&2
 }
@@ -90,7 +91,7 @@ download_and_verify() {
 # Sanitized historical benchmark and qualified short-training release.
 # Both the immutable dataset revision above and every payload checksum are pinned.
 artifacts=(
-  'README.md|2ce5067d74d9f1154ee3c69a0cfd439ea03d0d25ab642cf94ad3617314a9d139'
+  'README.md|01905741ea8c199b04546a7991de8b50a26b80cca8d1f258c64a0e1846432b40'
   'RESULTS.md|130c5557df2bc2577094fc2c65f4c500fc44e6c5677a0af79a59cc5b517cc59a'
   'checkpoints/mjwarp-anchorbench-19k/model_19000.pt|239d93c99cd282e9add019f4ac952407c97fde2879821103a2aa7bd7a307a15f'
   'checkpoints/mjwarp-usd-19k/model_19000.pt|cc7f128e15a282a6f2fcc68e97f67c2e6f81bf6e03347b6a3cbf0b9a02d072a4'
