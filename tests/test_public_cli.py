@@ -37,7 +37,8 @@ class PublicCliTests(unittest.TestCase):
             self.assertNotIn('--device=/dev', command)
 
     def test_rejects_unqualified_solver_and_invalid_budget(self):
-        for args in [('train', '--solver', 'physx'), ('train', '--iterations', '0')]:
+        for args in [('train', '--solver', 'physx'), ('train', '--iterations', '0'),
+                     ('train', '--actuator', 'workshop')]:
             with patch.object(sys, 'argv', ['so101', *args]), self.assertRaises(SystemExit) as error:
                 cli.main()
             self.assertEqual(error.exception.code, 2)
@@ -61,8 +62,8 @@ class PublicCliTests(unittest.TestCase):
             self.assertIn('dst=/inputs/checkpoint.pt,readonly', command)
 
     def test_probe_obeys_selected_profile(self):
-        command = self.plan('probe', '--actuator', 'workshop', '--seed', '42', '--plan')
-        self.assertIn('FixedCartesian-Baseline-P1D-Transit15', command)
+        command = self.plan('probe', '--actuator', 'usd', '--seed', '42', '--plan')
+        self.assertIn('FixedCartesian-USDDrive-P1D-Transit15', command)
         self.assertIn('--seed 42', command)
 
 

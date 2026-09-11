@@ -13,7 +13,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 IMAGE = 'so101-typing-public:dev'
-PROFILES = {'anchorbench': 'AnchorBench', 'usd': 'USDDrive', 'workshop': 'Baseline'}
+PROFILES = {'anchorbench': 'AnchorBench', 'usd': 'USDDrive'}
 STAGES = {'p1a': 'P1A', 'transit15': 'P1D-Transit15'}
 
 
@@ -39,7 +39,7 @@ def main():
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('build', help='build the public runtime (requires Docker)')
     download = sub.add_parser('download', help='download the optional AnchorBench 19k checkpoint and matching contract')
-    download.add_argument('--all', action='store_true', help='include the complete benchmark and development-validation archive')
+    download.add_argument('--all', action='store_true', help='include the supported-model benchmark and development-validation artifacts')
     sub.add_parser('setup-hardware', help='install an isolated CPU LeRobot deployment environment')
     prep = sub.add_parser('prepare-deployment', help='export a portable checkpoint/geometry bundle; no hardware access')
     prep.add_argument('--checkpoint', type=Path, required=True)

@@ -27,7 +27,6 @@ nominal pose; the other commands illustrate alternative actuator/DR choices.
 ./so101 train --actuator anchorbench --stage p1a \
   --task-config configs/tasks/my-keyboard.json --num-envs 64 --iterations 10
 ./so101 train --actuator usd --stage p1a --num-envs 64 --iterations 10
-./so101 train --actuator workshop --stage p1a --num-envs 64 --iterations 10
 
 ./so101 train --actuator usd --stage p1a \
   --physics-config configs/physics/mjwarp-soft-drives.json \
@@ -82,7 +81,7 @@ Calibration does not compensate for a different keyboard placement.
 
 Use `evaluate` for headless episodes or `play` for an interactive Newton viewer
 (X11 `DISPLAY`/`XAUTHORITY` required). The optional `--all` download includes the
-complete benchmark and development evidence. Verify downloaded files from the
+supported-model benchmark and development evidence. Verify downloaded files from the
 artifact directory with `sha256sum -c DOWNLOAD_SHA256SUMS`.
 
 ## Both workflows: user calibration and deployment

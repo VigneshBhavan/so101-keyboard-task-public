@@ -9,7 +9,7 @@ All new simulation runs use Newton MJWarp; no hardware motion was executed.
 | Requirement | Implemented and measured evidence | Remaining qualification |
 | --- | --- | --- |
 | Public runtime | Public image digest, source ancestor and runtime patch build successfully; GPU reset/action probe passes | Independent recipient installation and GPU/driver coverage |
-| Training | AnchorBench, USD and Workshop save checkpoints and environment YAML; custom task/physics training and resume smoke tests pass; 64-environment, 10-update baseline and DR runs pass | 501 P1A plus 50 Transit15 updates measured; wider seed/GPU coverage remains |
+| Training | AnchorBench and USD save checkpoints and environment YAML; custom task/physics training and resume smoke tests pass; 64-environment, 10-update reference and DR runs pass | 501 P1A plus 50 Transit15 updates measured; wider seed/GPU coverage remains |
 | Released policy playback | 4/4 strict evaluation episodes passed; recorded NVIDIA typing passed and frames were inspected | Larger sequence corpus; interactive X11 viewer |
 | Physics choices | JSON solver settings and actuator parameters saved/restored with contract hashes | Sparse VBD is not supported by this interface |
 | Keyboard placement and DR | Nominal XYZ/yaw transform updates mesh and map; per-reset XY/yaw and joint noise; 3-reset probe preserved actor nominal map | Fixed-policy XY/yaw tolerance measured; physical and cross-physics robustness pending |

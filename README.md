@@ -5,6 +5,9 @@ and deploy using the geometry saved during training and your robot's LeRobot
 calibration. An established AnchorBench ~19k checkpoint is available as an
 **optional shortcut for the documented reference fixture**.
 
+[Watch the typing timelapse](https://huggingface.co/datasets/nvidia/Anchor-Lab/blob/main/media/typing_abc_common7500_timelapse_hud_3x.mp4)
+in the [Anchor-Lab media collection](https://huggingface.co/datasets/nvidia/Anchor-Lab/tree/main/media).
+
 ## Install
 
 Requirements: Linux x86-64, an NVIDIA GPU, Docker with NVIDIA Container Toolkit,
@@ -36,7 +39,7 @@ cp configs/tasks/keyboard-pose.json configs/tasks/my-keyboard.json
 ```
 
 Continue with the [P1A-to-six-letter training recipe](docs/release/TRAINING.md).
-Choose `anchorbench`, `usd` or `workshop` actuators. Optional `--physics-config`
+Choose `anchorbench` or `usd` actuators. Optional `--physics-config`
 JSON configures Newton MJWarp and actuator parameters. Sparse VBD is not exposed
 by this interface. No pretrained download is needed to train from scratch.
 
@@ -83,7 +86,7 @@ cannot match it, use workflow 1 to train for your intended placement.
 
 The default download contains only these weights, their environment and evaluation
 report, verified against pinned hashes. `./so101 download --all` explicitly fetches
-the complete benchmark/development archive. Existing downloaded files are retained.
+the supported-model benchmark/development artifacts. Existing downloaded files are retained.
 
 ## Both workflows: calibrate your robot and deploy
 
