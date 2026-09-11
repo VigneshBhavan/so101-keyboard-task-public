@@ -683,5 +683,164 @@
       "Existing contact qualification limits unchanged"
     ],
     "evidence_location_note": "Run paths identify local ignored audit outputs; this ledger publishes the measured summary."
+  },
+  "fresh_readme_walkthrough_20260911": {
+    "source_commit": "d26f21572a4c443e8bc575d1093b9110be79ef0e",
+    "source": "fresh anonymous HTTPS clone",
+    "machine": "Linux-6.17.0-22-generic-x86_64-with-glibc2.39",
+    "isolated_runtime_cache": true,
+    "fresh_hardware_environment": true,
+    "docker_build_cache_reused": true,
+    "separate_machine": false,
+    "hardware_connected": false,
+    "training_budget_note": "README 10-update, 64-environment startup; continuation reduced to 10 updates at 64 environments for execution testing.",
+    "checkout_name": "so101-new-user-walkthrough-20260911",
+    "probe_wall_seconds": 122.54484066891018,
+    "steps": [
+      {
+        "step": "03-readme-startup",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 44.74,
+        "run_dir": "output/public/20260911T212703.572445Z-train",
+        "videos": []
+      },
+      {
+        "step": "04-six-letter-continuation",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 28.36,
+        "run_dir": "output/public/20260911T212748.311048Z-train",
+        "videos": []
+      },
+      {
+        "step": "05-custom-evaluate",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 25.32,
+        "run_dir": "output/public/20260911T212816.672383Z-evaluate",
+        "evaluation": {
+          "num_envs": 1024,
+          "overall_success_rate": 0.0,
+          "wrong_key_rate": 0.0,
+          "termination_rates": {
+            "abnormal_robot": 0.0,
+            "action_contract": 0.0,
+            "excessive_contact": 0.0,
+            "invalid_key": 0.0,
+            "map_invalid": 0.0,
+            "phase_timeout": 1.0,
+            "scrape": 0.0,
+            "time_out": 0.0
+          }
+        },
+        "videos": []
+      },
+      {
+        "step": "06-custom-video",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 29.2,
+        "run_dir": "output/public/20260911T212841.992580Z-video",
+        "evaluation": {
+          "num_envs": 1,
+          "overall_success_rate": 0.0,
+          "wrong_key_rate": 0.0,
+          "termination_rates": {
+            "abnormal_robot": 0.0,
+            "action_contract": 0.0,
+            "excessive_contact": 0.0,
+            "invalid_key": 0.0,
+            "map_invalid": 0.0,
+            "phase_timeout": 1.0,
+            "scrape": 0.0,
+            "time_out": 0.0
+          }
+        },
+        "videos": [
+          "output/public/20260911T212841.992580Z-video/videos/evaluation-step-0.mp4"
+        ]
+      },
+      {
+        "step": "07-reference-download",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 1.22
+      },
+      {
+        "step": "08-reference-video",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 26.33,
+        "run_dir": "output/public/20260911T212912.411956Z-video",
+        "evaluation": {
+          "num_envs": 1,
+          "overall_success_rate": 1.0,
+          "wrong_key_rate": 0.0,
+          "termination_rates": {
+            "abnormal_robot": 0.0,
+            "action_contract": 0.0,
+            "excessive_contact": 0.0,
+            "invalid_key": 0.0,
+            "map_invalid": 0.0,
+            "phase_timeout": 0.0,
+            "scrape": 0.0,
+            "time_out": 0.0
+          }
+        },
+        "videos": [
+          "output/public/20260911T212912.411956Z-video/videos/evaluation-step-0.mp4"
+        ]
+      },
+      {
+        "step": "09-reference-evaluate",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 33.5,
+        "run_dir": "output/public/20260911T212938.747134Z-evaluate",
+        "evaluation": {
+          "num_envs": 1024,
+          "overall_success_rate": 0.9970703125,
+          "wrong_key_rate": 0.0,
+          "termination_rates": {
+            "abnormal_robot": 0.0,
+            "action_contract": 0.0,
+            "excessive_contact": 0.0,
+            "invalid_key": 0.0,
+            "map_invalid": 0.0,
+            "phase_timeout": 0.0009765625,
+            "scrape": 0.001953125,
+            "time_out": 0.0
+          }
+        },
+        "videos": []
+      },
+      {
+        "step": "10-hardware-setup",
+        "exit_code": 0,
+        "expected_exit_code": 0,
+        "wall_seconds": 2.46
+      },
+      {
+        "step": "11-calibration-required",
+        "exit_code": 2,
+        "expected_exit_code": 2,
+        "wall_seconds": 0.7
+      }
+    ],
+    "actor_parity": {
+      "kind": "simulation_to_cpu_actor_parity",
+      "checkpoint_sha256": "239d93c99cd282e9add019f4ac952407c97fde2879821103a2aa7bd7a307a15f",
+      "report_sha256": "9ed1d59470f6b1436c0d8527c4b419fb79fd6baff63149714d15ce9544bb7b6e",
+      "samples": 8,
+      "maximum_absolute_action_error": 3.5762786865234375e-07,
+      "tolerance": 1e-05,
+      "passed": true,
+      "hardware_connected": false
+    },
+    "default_download_payloads_verified": 3,
+    "all_run_outputs_host_owned": true,
+    "calibration_boundary": "No robot connected. Actual calibration, successful new-user export/dry-run, fixture alignment and hardware typing require the operator. No synthetic calibration was created.",
+    "usability_issue_fixed": "Launcher now prints host paths for checkpoint, matching environment, evaluation report and video."
   }
 }

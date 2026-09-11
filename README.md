@@ -57,7 +57,9 @@ Choose `anchorbench` or `usd` actuators. Optional `--physics-config`
 JSON configures Newton MJWarp and actuator parameters. Sparse VBD is not exposed
 by this interface. No pretrained download is needed to train from scratch.
 
-Evaluate your selected checkpoint with its matching stage and configuration:
+At the end of training, the launcher prints the host paths of the latest saved
+checkpoint and its matching environment. Use those paths in the commands below,
+with the stage used for that checkpoint:
 
 ```bash
 ./so101 evaluate --actuator anchorbench --stage transit15 \

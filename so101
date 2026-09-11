@@ -34,6 +34,21 @@ def positive(value):
     return value
 
 
+def report_outputs(output):
+    print(f'Run outputs: {output}', flush=True)
+    for environment in sorted(output.glob('rsl_rl/*/*/params/env.yaml')):
+        checkpoints = list(environment.parent.parent.glob('model_*.pt'))
+        if checkpoints:
+            latest = max(checkpoints, key=lambda path: path.stat().st_mtime_ns)
+            print(f'Latest saved checkpoint (evaluate before deployment): {latest}', flush=True)
+        print(f'Matching environment: {environment}', flush=True)
+    report = output / 'evaluation.json'
+    if report.is_file():
+        print(f'Evaluation report: {report}', flush=True)
+    for video in sorted(output.rglob('*.mp4')):
+        print(f'Video: {video}', flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest='command', required=True)
@@ -233,6 +248,7 @@ def main():
     (output / 'exit.json').write_text(json.dumps({'exit_code': result,
         'finished_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
         'wall_seconds': time.monotonic() - started}) + '\n')
+    report_outputs(output)
     return result
 
 

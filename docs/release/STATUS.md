@@ -10,7 +10,7 @@ All new simulation runs use Newton MJWarp; no hardware motion was executed.
 | --- | --- | --- |
 | Public runtime | Public image digest, source ancestor and runtime patch build successfully; GPU reset/action probe passes | Independent recipient installation and GPU/driver coverage |
 | Training | AnchorBench and USD save checkpoints and environment YAML; custom task/physics training and resume smoke tests pass; 64-environment, 10-update reference and DR runs pass | 501 P1A plus 50 Transit15 updates measured; wider seed/GPU coverage remains |
-| Released policy playback | 4/4 strict evaluation episodes passed; recorded NVIDIA typing passed and frames were inspected | Larger sequence corpus; interactive X11 viewer |
+| Released policy playback | 1021/1024 strict evaluation episodes passed in the fresh README walkthrough; recorded NVIDIA typing passed | Additional seeds, independent GPU/machine and interactive X11 viewer |
 | Physics choices | JSON solver settings and actuator parameters saved/restored with contract hashes | Sparse VBD is not supported by this interface |
 | Keyboard placement and DR | Nominal XYZ/yaw transform updates mesh and map; per-reset XY/yaw and joint noise; 3-reset probe preserved actor nominal map | Fixed-policy XY/yaw tolerance measured; physical and cross-physics robustness pending |
 | Staged recipe | Public P1A-to-Transit15 commands, output conventions and budget caveats documented | Short learned recipe qualified; optional 20,000-update budget not reproduced |
@@ -109,3 +109,34 @@ Historical hardware-tool documentation directs new users to the public workflow.
 The checks reused this workstation and caches. Independent-machine/GPU coverage,
 interactive X11 playback and physical reproduction remain unqualified. Existing
 contact-model limitations are unchanged; this review adds software evidence.
+
+## Fresh README walkthrough — 2026-09-11
+
+A new anonymous HTTPS clone of `d26f215` followed the README with an empty runtime
+cache, no downloaded checkpoints and a new hardware Python environment. The
+public image build reused Docker layers; hardware installation reused public
+package caches on this same machine. The first probe took 122.54 seconds including
+kernel compilation and passed with the README's example keyboard pose.
+
+The exact 64-environment, 10-update startup command passed. A reduced 10-update,
+64-environment six-letter continuation, 1024-episode evaluation and MP4 recording
+also executed successfully and preserved the saved placement. These startup
+weights achieved 0/1024 successes; this checks the software path, not learning.
+The full 4000 + 16000-update example was not run.
+
+The default download fetched and verified exactly three reference artifacts.
+The established 19k checkpoint's NVIDIA recording passed; its 1024-episode
+assessment passed 1021 (99.71%), with no wrong keys, two scrape failures and one
+phase timeout. Both MP4s were readable H.264 files. The new CPU environment passed
+imports, dependency compatibility and actor parity for the eight default trace
+samples. Generated run files belonged to the host user.
+
+The walkthrough reached the operator-calibration boundary. Export for the new
+robot ID failed clearly before creating a bundle, as expected with no calibration.
+No robot was connected and no synthetic calibration was supplied. Successful
+export/dry-run with synthetic calibration is covered separately above; this
+walkthrough does not claim actual user calibration or physical deployment.
+
+One usability issue was corrected: completed runs now print host paths for the
+saved checkpoint, matching environment, evaluation report and video, so users
+can fill the next README command without interpreting Docker mount paths.

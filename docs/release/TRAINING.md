@@ -72,6 +72,11 @@ and logs live under `output/public/<timestamp>-train/rsl_rl/...`; evaluation res
 live in the corresponding `*-evaluate` directory. Keep the complete `params/`
 folder with each policy for replay and deployment export.
 
+The launcher prints host paths after each run: the latest saved checkpoint and
+matching environment for training, or the evaluation report and video when
+produced. Use these paths in place of the examples' `/absolute/path/to/...`
+placeholders. The latest checkpoint still needs evaluation before deployment.
+
 ## Supervise the staged run
 
 For the default reference geometry, the host-side supervisor runs the same public commands sequentially and saves
