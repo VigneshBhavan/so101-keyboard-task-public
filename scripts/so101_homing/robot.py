@@ -41,9 +41,14 @@ def require_calibration(robot_id: str) -> Path:
             f'--robot.type=so101_follower --robot.port=YOUR_PORT --robot.id={robot_id} first.')
     try:
         data = json.loads(path.read_text())
-        from lerobot.motors import MotorCalibration
-        if not isinstance(data, dict) or not set((*ARM_JOINT_NAMES, 'gripper')).issubset(data):
-            raise ValueError('expected calibration for all five arm motors and gripper')
+    except ValueError as error:
+        raise ValueError(f'Invalid LeRobot calibration file {path}: {error}') from error
+    if not isinstance(data, dict) or not set((*ARM_JOINT_NAMES, 'gripper')).issubset(data):
+        raise ValueError(
+            f'Invalid LeRobot calibration file {path}: '
+            'expected calibration for all five arm motors and gripper')
+    from lerobot.motors import MotorCalibration
+    try:
         for values in data.values():
             MotorCalibration(**values)
     except (ValueError, TypeError) as error:

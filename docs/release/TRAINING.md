@@ -124,6 +124,13 @@ RSL-RL console output reports training-loop time separately.
 Containers run with your host UID/GID, so new checkpoints and run directories
 can be edited or deleted without sudo. The writable container home/cache is
 stored under `XDG_CACHE_HOME/so101-typing` (default: `~/.cache/so101-typing`).
-The older root-owned Docker cache volume is no longer used. Existing root-owned
-runs from older versions are not automatically changed; their owner must repair
+This host cache uses additional disk space as kernels are compiled. The older
+`so101-typing-warp-cache` Docker volume is no longer used. Once you have stopped
+using containers from older versions, you can reclaim that volume's disk space:
+
+```bash
+docker volume rm so101-typing-warp-cache
+```
+
+Existing root-owned runs from older versions are not automatically changed; their owner must repair
 permissions or remove them once.
